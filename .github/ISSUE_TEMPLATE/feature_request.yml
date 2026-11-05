@@ -1,0 +1,96 @@
+name: Feature request
+description: Propose a capability, or claim a Phase 4.5 task
+title: 'feat: '
+labels: ['enhancement', 'triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Read [`docs/roadmap.md`](../blob/main/docs/roadmap.md) first.** Phase 4.5 is
+        hardening, not features; Phase 5 is the product surface. If your idea is already in
+        [`docs/phase-4.5-backlog.md`](../blob/main/docs/phase-4.5-backlog.md), claim that task
+        instead of opening a new one.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of request is this?
+      options:
+        - Claiming an existing Phase 4.5 backlog task
+        - A Phase 5 feature
+        - A developer-experience or tooling improvement
+        - A documentation improvement
+    validations:
+      required: true
+
+  - type: input
+    id: backlog-id
+    attributes:
+      label: Backlog task id
+      description: If claiming an existing task, which one? (e.g. BC-1, PG-2)
+      placeholder: BC-1
+    validations:
+      required: false
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: |
+        What is wrong or missing today, from the user's or the developer's point of view.
+        Describe the problem before the solution — a solution without a problem is a guess.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you would build. Keep it concrete enough to estimate.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else could solve this, and why is your proposal better?
+    validations:
+      required: false
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope estimate
+      description: |
+        Which files or modules would this touch? Roughly how large is it?
+        A request that touches the contract, the schema and the API is three tasks, not one.
+      placeholder: |
+        - apps/api/src/blockchain/...
+        - apps/api/prisma/schema.prisma + a migration
+        Roughly 300 lines, one migration.
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How will a reviewer know this is done? Write them as checkboxes.
+      placeholder: |
+        - [ ] ...
+        - [ ] A test fails without the change
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I read `docs/roadmap.md` and this is not already planned
+          required: true
+        - label: This does not require a mainnet deployment or real money movement
+          required: true
+        - label: I searched existing issues for the same request
+          required: true

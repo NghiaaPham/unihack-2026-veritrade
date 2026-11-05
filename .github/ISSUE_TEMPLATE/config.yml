@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Read the current status first
+    url: https://github.com/NghiaaPham/unihack-2026-veritrade/blob/main/docs/current-status.md
+    about: What works, what does not, and what has never been run. Several surprises are documented gaps.
+  - name: Onboarding and local setup
+    url: https://github.com/NghiaaPham/unihack-2026-veritrade/blob/main/docs/onboarding.md
+    about: Clone, install, configure, run, test. Check here before filing a setup problem.
+  - name: Report a security issue privately
+    url: https://github.com/NghiaaPham/unihack-2026-veritrade/security/advisories/new
+    about: Do not open a public issue for a vulnerability, a leaked key or a tenancy bypass.

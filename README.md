@@ -2,6 +2,12 @@
 
 Verifiable trade settlement on Avalanche. pnpm + Turborepo monorepo.
 
+> **New to the repository?** Read [docs/current-status.md](docs/current-status.md) before
+> anything else. It states what actually works, what was independently verified, and what
+> has never been run — which is not always what a phase report claims.
+> Setup: [docs/onboarding.md](docs/onboarding.md). Rules: [AGENTS.md](AGENTS.md).
+> Process: [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Stack
 
 | Layer     | Technology                               |
@@ -23,8 +29,14 @@ packages/
   config/              Shared tsconfig presets (no build step)
   contracts/           Hardhat project, Fuji network, deploy script
 docs/
-  architecture.md      module boundaries, request lifecycle, health design
-  database-design.md   models, indexes, state machines, duplicate-financing threat model
+  project-context.md       the product, the vocabulary, what is out of scope
+  current-status.md        what works, what was verified, what is still broken
+  onboarding.md            clone to running stack, with a verification matrix
+  roadmap.md               phases and sequencing
+  decisions.md             architecture decision records
+  phase-4.5-backlog.md     the hardening tasks, with acceptance criteria
+  architecture.md          module boundaries, request lifecycle, health design
+  database-design.md       models, indexes, state machines, duplicate-financing threat model
   security-assumptions.md  trust boundaries, what may go on-chain, known gaps
   development-setup.md     install, migrate, seed, test, troubleshooting
   blockchain-architecture.md    BlockchainModule, the outbox, what each service owns
@@ -33,7 +45,24 @@ docs/
   avalanche-fuji-deployment.md  deploy, roles, verification, the guards that block mistakes
   blockchain-security.md        roles, trust assumptions, admin powers, what is not defended
   transaction-reconciliation.md unknown outcomes, retries, reorgs, the indexer
+  invoice-processing.md         XML formats, extraction rules, normalisation
+  invoice-verification.md       what each check proves and what it does not
+  invoice-security.md           the document pipeline threat model
 ```
+
+## Contributing
+
+| Start here                                             | For                                                                        |
+| ------------------------------------------------------ | -------------------------------------------------------------------------- |
+| [AGENTS.md](AGENTS.md)                                 | rules for AI agents and humans alike: scope, standards, Definition of Done |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                     | branches, commits, pull requests, review                                   |
+| [docs/onboarding.md](docs/onboarding.md)               | setting up a machine, with exact commands                                  |
+| [docs/current-status.md](docs/current-status.md)       | what actually works before you trust a phase report                        |
+| [docs/decisions.md](docs/decisions.md)                 | why the code looks the way it does                                         |
+| [docs/phase-4.5-backlog.md](docs/phase-4.5-backlog.md) | what to work on next                                                       |
+
+CI runs on every pull request: formatting, lint, typecheck, build, the API suite and the
+contract suite. No secrets and no database service are required.
 
 ### Why this shape
 

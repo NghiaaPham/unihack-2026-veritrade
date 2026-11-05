@@ -4,6 +4,12 @@ VeriTrade lets a business turn a verified invoice into short-term financing, wit
 proof of verification anchored on Avalanche. This document covers how the codebase is
 organised to deliver that, and why.
 
+**Related:** [project-context.md](project-context.md) for the product and vocabulary ·
+[current-status.md](current-status.md) for what actually works ·
+[decisions.md](decisions.md) for why past choices were made ·
+[blockchain-architecture.md](blockchain-architecture.md) for the chain layer, which this
+document only summarises.
+
 ## Shape: a modular monolith
 
 One deployable API, one database, nine domain modules. Not microservices.

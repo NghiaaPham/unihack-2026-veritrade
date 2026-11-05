@@ -1,0 +1,110 @@
+name: Bug report
+description: Something behaves differently from what the documentation says
+title: 'bug: '
+labels: ['bug', 'triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: check [`docs/current-status.md`](../blob/main/docs/current-status.md).
+        Several surprising behaviours are documented gaps, not defects — for example, no
+        invoice can reach `PASSED`, and `FINANCING_DECLARED` is deliberately not `FUNDED`.
+
+        **Do not report a security vulnerability here.** Send it privately to the Tech Lead.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the system is misbehaving?
+      options:
+        - API — invoices / upload / verification
+        - API — authentication / tenancy / roles
+        - API — blockchain / anchoring / financing lifecycle
+        - API — health / configuration / boot
+        - Contracts — registry / scripts
+        - Web — client
+        - Tooling — build, lint, tests, CI
+        - Documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The actual behaviour, including the exact error message or response body.
+      placeholder: |
+        POST /api/v1/invoices/:id/anchor returned 500 with {"code":"..."}
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: And where that expectation comes from — a doc, a test, an API contract.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps. Include the request body or command. Redact tokens and keys.
+      placeholder: |
+        1. `pnpm dev` with apps/api/.env present
+        2. Register a user, upload an invoice
+        3. POST /api/v1/invoices/<id>/anchor
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Paste the output of these commands.
+      value: |
+        ```
+        node -v
+        pnpm -v
+        git rev-parse --short HEAD
+        docker --version   # or "not installed"
+        ```
+    validations:
+      required: true
+
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      description: Which backend was running when this happened?
+      options:
+        - PGlite (test suite, no server)
+        - Real PostgreSQL via Docker
+        - Real PostgreSQL, installed locally
+        - No database running
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: API output, test output, or the chain transaction hash. Remove secrets first.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have removed every token, key and connection string from this report
+          required: true
+        - label: I checked `docs/current-status.md` and this is not a documented gap
+          required: true
+        - label: I searched existing issues for the same problem
+          required: true

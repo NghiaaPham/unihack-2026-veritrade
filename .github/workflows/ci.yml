@@ -1,0 +1,117 @@
+# Continuous integration.
+#
+# Deliberately minimal: two jobs, no database service, no secrets, no deployment.
+#
+# Why no PostgreSQL service container: the API suite runs against PGlite, an in-process
+# Postgres compiled to WASM, reached over the wire protocol. It needs no server and no
+# credentials. Adding a service container here would test a different thing from what
+# developers run locally, and Phase 4.5 (task PG-1) is where real-PostgreSQL coverage is
+# introduced — deliberately, with its own job.
+#
+# Why no secrets: nothing here talks to Avalanche. The contract suite spawns a local
+# Hardhat node; the API suite mocks nothing but uses no network. A workflow that needed a
+# Fuji key would be unrunnable on a fork PR, which is exactly when you want CI to run.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: this workflow only reads the repository.
+permissions:
+  contents: read
+
+# A new push to the same branch cancels the previous run. Saves minutes and, more
+# importantly, stops a stale run from reporting green on a commit that no longer exists.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Turborepo telemetry is not needed in CI and should not be a network dependency.
+  TURBO_TELEMETRY_DISABLED: '1'
+  DO_NOT_TRACK: '1'
+
+jobs:
+  # Fast checks first, so a formatting or type error reports in about a minute
+  # instead of waiting behind a full build.
+  static:
+    name: Format, lint, types
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        # Version comes from package.json "packageManager" — do not pin it here,
+        # or CI and local development drift.
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+  # Build, then both test suites. `build` is a prerequisite, not just a check:
+  # the API's ESM interop test imports the compiled output, and the contract test
+  # deploys the compiled artifact.
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: API tests
+        run: pnpm --filter @veritrade/api test
+
+      # Runs the contract suite including the end-to-end registry test, which spawns
+      # `hardhat node` on port 8546 and deploys to it. A real EVM, not a mock — no
+      # network access to Avalanche is required or used.
+      - name: Smart contract tests
+        run: pnpm --filter @veritrade/contracts test
+
+      - name: Upload test output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output
+          path: |
+            apps/api/coverage/
+            packages/contracts/artifacts/
+          retention-days: 3
+          if-no-files-found: ignore

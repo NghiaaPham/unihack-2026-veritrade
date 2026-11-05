@@ -1,0 +1,54 @@
+# CODEOWNERS
+#
+# GitHub uses the last matching pattern, so specific paths go after the wildcard.
+# Owners are requested automatically on every pull request that touches a path.
+#
+# PLACEHOLDERS: every entry currently points at the repository owner because no
+# specialist owners have been assigned yet. Replace them as roles are filled — do not
+# guess a handle. A CODEOWNERS entry naming someone who does not exist silently stops
+# requesting reviews, which is worse than no entry at all.
+#
+# Roles to assign (see docs/phase-4.5-backlog.md §"Suggested team allocation"):
+#   contracts owner   — Solidity, scripts, deployment approval
+#   database owner    — prisma schema, migrations, CI database jobs
+#   security owner    — auth, guards, rate limiting, threat models
+#   docs owner        — everything under docs/ and the root markdown files
+
+# Default: everything not matched below.
+*                               @NghiaaPham
+
+# --- Smart contracts and deployment -------------------------------------------
+# Any change here can move a claim, so it needs the contracts owner. A deployment
+# additionally needs explicit Tech Lead approval recorded in the PR.
+/packages/contracts/            @NghiaaPham
+/packages/contracts/contracts/  @NghiaaPham
+/packages/contracts/scripts/    @NghiaaPham
+/packages/contracts/test/       @NghiaaPham
+
+# --- Database ------------------------------------------------------------------
+# Schema and migrations are reviewed as SQL, not as generated output.
+/apps/api/prisma/               @NghiaaPham
+
+# --- Chain-facing backend ------------------------------------------------------
+# The outbox, receipts and indexer: the parts where a mistake is expensive.
+/apps/api/src/blockchain/       @NghiaaPham
+/apps/api/src/blockchain-registry/ @NghiaaPham
+
+# --- Security boundary ---------------------------------------------------------
+/apps/api/src/auth/             @NghiaaPham
+/apps/api/src/config/           @NghiaaPham
+/apps/api/src/common/           @NghiaaPham
+
+# --- CI and repository configuration -------------------------------------------
+/.github/                       @NghiaaPham
+/pnpm-lock.yaml                 @NghiaaPham
+/pnpm-workspace.yaml            @NghiaaPham
+/package.json                   @NghiaaPham
+/turbo.json                     @NghiaaPham
+
+# --- Documentation -------------------------------------------------------------
+# Docs are part of the deliverable; a stale doc is a bug.
+/docs/                          @NghiaaPham
+/README.md                      @NghiaaPham
+/AGENTS.md                      @NghiaaPham
+/CONTRIBUTING.md                @NghiaaPham
