@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetic Thông tư 32/2011 invoice. Same field names as TT78 but no DLHDon
+  wrapper — that structural difference is the only thing distinguishing the two
+  profiles. All values are invented.
+-->
+<HDon>
+  <TTChung>
+    <PBan>2.0.0</PBan>
+    <THDon>Hóa đơn giá trị gia tăng</THDon>
+    <KHMSHDon>1</KHMSHDon>
+    <KHHDon>AA/25E</KHHDon>
+    <SHDon>0000042</SHDon>
+    <NLap>2026-08-15</NLap>
+    <DVTTe>VND</DVTTe>
+    <TGia>1</TGia>
+    <HTTToan>Chuyển khoản</HTTToan>
+  </TTChung>
+  <NDHDon>
+    <NBan>
+      <Ten>Công ty TNHH Dịch vụ Hải Đăng</Ten>
+      <MST>0209876543</MST>
+      <DChi>88 Đường Nguyễn Văn Linh, Đà Nẵng</DChi>
+    </NBan>
+    <NMua>
+      <Ten>Công ty Cổ phần Thương mại Sao Mai</Ten>
+      <MST>0201112223</MST>
+      <DChi>19 Đường Lê Lợi, Đà Nẵng</DChi>
+    </NMua>
+    <DSHHDVu>
+      <HHDVu>
+        <STT>1</STT>
+        <THHDVu>Dịch vụ bảo trì hệ thống</THHDVu>
+        <DVTinh>gói</DVTinh>
+        <SLuong>5</SLuong>
+        <DGia>200000</DGia>
+        <TLCK>0</TLCK>
+        <ThTien>1000000</ThTien>
+        <TSuat>8%</TSuat>
+      </HHDVu>
+    </DSHHDVu>
+    <TToan>
+      <TgTCThue>1000000</TgTCThue>
+      <TgTThue>80000</TgTThue>
+      <TgTTTBSo>1080000</TgTTTBSo>
+      <TgTTTBChu>Một triệu không trăm tám mươi nghìn đồng</TgTTTBChu>
+    </TToan>
+  </NDHDon>
+</HDon>

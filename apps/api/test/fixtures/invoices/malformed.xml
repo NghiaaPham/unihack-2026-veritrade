@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Mismatched closing tag: the document is not well-formed XML. -->
+<HDon>
+  <DLHDon Id="INV-BROKEN-0001">
+    <TTChung>
+      <SHDon>0000999</SHDon>
+    </DLHDon>
+  </TTChung>
+</HDon>

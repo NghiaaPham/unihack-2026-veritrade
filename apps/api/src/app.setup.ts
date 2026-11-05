@@ -1,4 +1,5 @@
 import { RequestMethod, ValidationPipe, type INestApplication } from '@nestjs/common';
+import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
 
 const DEFAULT_CORS_ORIGIN = 'http://localhost:3000';
 
@@ -11,7 +12,8 @@ function parseOrigins(value: string | undefined): string[] {
 
 /**
  * Shared HTTP configuration. `main.ts` and the e2e tests both apply it, so a
- * route prefix or pipe change cannot drift between runtime and tests.
+ * route prefix, pipe or error-shape change cannot drift between runtime and
+ * tests.
  */
 export function configureApp(app: INestApplication): void {
   // Business endpoints live under /api. Health checks stay at the root so
@@ -31,4 +33,9 @@ export function configureApp(app: INestApplication): void {
       transform: true,
     }),
   );
+
+  // Registered here rather than in `main.ts` so the tests assert the same
+  // error envelope the deployed API returns. An error shape that only exists
+  // in production is an error shape nobody tested.
+  app.useGlobalFilters(new HttpExceptionFilter());
 }

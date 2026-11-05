@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A well-formed XML invoice in a format VeriTrade does not support.
+  OASIS UBL is a real e-invoicing standard, just not one of the Vietnamese
+  profiles implemented here — this fixture exists to prove the service says
+  "unsupported" instead of guessing.
+-->
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2">
+  <ID>UBL-2026-0001</ID>
+  <IssueDate>2026-09-01</IssueDate>
+  <DocumentCurrencyCode>USD</DocumentCurrencyCode>
+  <AccountingSupplierParty>
+    <Party>
+      <PartyName>
+        <Name>Example Supplier Ltd</Name>
+      </PartyName>
+    </Party>
+  </AccountingSupplierParty>
+  <LegalMonetaryTotal>
+    <PayableAmount currencyID="USD">1000.00</PayableAmount>
+  </LegalMonetaryTotal>
+</Invoice>

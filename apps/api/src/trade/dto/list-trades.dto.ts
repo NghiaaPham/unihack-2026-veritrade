@@ -1,10 +1,12 @@
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
-import { tradeStatus, type TradeStatus } from '../../database/schema.js';
+import { TradeStatus } from '../../generated/prisma/client.js';
+
+const TRADE_STATUSES = Object.values(TradeStatus);
 
 export class ListTradesQueryDto {
   @IsOptional()
-  @IsIn(tradeStatus.enumValues)
+  @IsIn(TRADE_STATUSES)
   status?: TradeStatus;
 
   @IsOptional()

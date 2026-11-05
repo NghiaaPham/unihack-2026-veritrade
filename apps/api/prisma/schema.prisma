@@ -1,0 +1,822 @@
+// VeriTrade data model.
+//
+// Conventions that hold for every model below:
+//   * Primary keys are UUIDv7 (`uuid(7)`), generated client-side by Prisma.
+//     v7 is time-ordered, so inserts stay clustered on the primary-key index
+//     instead of scattering across the B-tree the way random v4 does.
+//   * Money is `Decimal(38, 18)` everywhere. 38 digits of precision and 18
+//     decimals covers any ERC-20 token plus fiat, and never round-trips
+//     through a JS float.
+//   * Timestamps are `timestamptz(3)`. Millisecond precision matches JS `Date`
+//     exactly, so what Prisma writes is what the API serialises.
+//   * Column and table names are snake_case via `@map` / `@@map`; Prisma model
+//     fields stay camelCase so the generated types read naturally in TS.
+//   * Tenant isolation: `Organization` is the tenant root. Every tenant-owned
+//     row carries `organizationId` and every index that serves a query leads
+//     with it, so a query without a tenant filter is a visible omission rather
+//     than a silent cross-tenant read.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  // No `url` here on purpose: Prisma 7 reads it from `prisma.config.ts`, which
+  // keeps the connection string out of the schema file that gets committed.
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+  FINANCING_REQUESTED
+  FINANCED
+  SETTLED
+  CANCELLED
+}
+
+/// Outcome of a verification run.
+///
+/// `PARTIAL` exists because honesty matters more than a tidy two-state result:
+/// it means every check we can run locally passed, but at least one dimension
+/// (signature trust chain, tax-authority approval) was NOT_CHECKED or
+/// UNSUPPORTED. Reporting `PASSED` in that situation would claim a guarantee
+/// the system cannot make.
+enum VerificationStatus {
+  PENDING
+  PASSED
+  PARTIAL
+  FAILED
+}
+
+/// Outcome of one individual check inside a verification run.
+enum VerificationCheckStatus {
+  PASSED
+  FAILED
+  SKIPPED
+  UNSUPPORTED
+  NOT_CHECKED
+  ERROR
+}
+
+enum FinancingStatus {
+  REQUESTED
+  /// The invoice claim is held on-chain for this request.
+  RESERVED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  /// The financier declared financing on-chain. This mirrors the contract's
+  /// FINANCED attestation and deliberately does not mean funds were disbursed.
+  FINANCING_DECLARED
+  FUNDED
+  REPAID
+  /// The on-chain claim was closed. Settlement is recorded elsewhere.
+  CLOSED
+  CANCELLED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+/// What a blockchain record attests to. Kept as an enum rather than a free
+/// string so the indexer cannot invent a new record kind by typo.
+enum BlockchainRecordKind {
+  INVOICE_REGISTRY
+  VERIFICATION_ATTESTATION
+  FINANCING_REQUEST
+  RISK_ATTESTATION
+}
+
+enum BlockchainRecordStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+/// The chain action an operation intends to perform. One value per contract
+/// entry point the backend may call; there is no value for a call that does not
+/// exist, so a typo cannot invent one.
+enum BlockchainOperationType {
+  /// `register(commitment, entityId)` — anchor the invoice, which is also the
+  /// reservation that makes it unavailable to anyone else.
+  INVOICE_ANCHOR
+  /// `cancelReservation(commitment)` — release a reservation that was never
+  /// financed.
+  RESERVATION_CANCEL
+  /// `declareFinanced(commitment, financingRef)` — attest that financing was
+  /// agreed. Not proof of disbursement.
+  FINANCING_DECLARE
+  /// `closeClaim(commitment)` — end the lifecycle of a financed claim.
+  FINANCING_CLOSE
+}
+
+/// Operational state of an outbox row.
+///
+/// `UNKNOWN` is the important one: an RPC timeout means the transaction may or
+/// may not be mined. Treating that as a failure is how a second transaction
+/// gets sent for the same invoice, so it is a distinct state that requires
+/// reconciliation rather than retry.
+enum BlockchainOperationStatus {
+  PENDING
+  SUBMITTING
+  SUBMITTED
+  CONFIRMED
+  FAILED
+  UNKNOWN
+  CANCELLED
+}
+
+enum BlockchainReceiptStatus {
+  SUCCESS
+  REVERTED
+}
+
+/// Registry events the indexer understands. Anything else is ignored rather
+/// than stored, so an unexpected ABI change cannot silently pollute the table.
+enum BlockchainEventType {
+  INVOICE_RESERVED
+  FINANCING_DECLARED
+  RESERVATION_CANCELLED
+  CLAIM_CLOSED
+}
+
+/// Lowercase to match the Phase 1 `trade_status` type and the values the
+/// existing API contract returns (`"draft"`, `"settled"`, ...).
+enum TradeStatus {
+  draft
+  pending
+  settled
+  disputed
+  cancelled
+}
+
+// ---------------------------------------------------------------------------
+// Identity and access
+// ---------------------------------------------------------------------------
+
+/// A person. Deliberately not tenant-scoped: one human can belong to several
+/// organisations, and the membership row carries the tenant boundary.
+model User {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  /// Stored lowercased so `Alice@Example.com` and `alice@example.com` are the
+  /// same account. The unique index is what actually prevents duplicates.
+  email       String     @unique @db.VarChar(320)
+  displayName String     @map("display_name") @db.VarChar(120)
+  status      UserStatus @default(ACTIVE)
+
+  /// Argon2id hash, never the password. Nullable because a wallet-only account
+  /// authenticates by signature and has no password to store.
+  passwordHash String? @map("password_hash") @db.VarChar(255)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  memberships       OrganizationMembership[]
+  uploadedInvoices  Invoice[]                @relation("InvoiceUploadedBy")
+  financingRequests FinancingRequest[]       @relation("FinancingRequestedBy")
+  auditLogs         AuditLog[]
+
+  @@map("users")
+}
+
+/// The tenant. Everything that is not a `User` hangs off one of these.
+model Organization {
+  id   String @id @default(uuid(7)) @db.Uuid
+  name String @db.VarChar(160)
+
+  /// URL-safe handle. Unique globally so it can be used in links.
+  slug        String             @unique @db.VarChar(64)
+  countryCode String             @map("country_code") @db.Char(2)
+  status      OrganizationStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  memberships       OrganizationMembership[]
+  invoices          Invoice[]
+  financingRequests FinancingRequest[]
+  blockchainRecords BlockchainRecord[]
+  blockchainOperations BlockchainOperation[]
+  auditLogs         AuditLog[]
+
+  @@map("organizations")
+}
+
+/// Join table between `User` and `Organization`. The unique pair is the
+/// invariant that stops a user being added to the same org twice.
+model OrganizationMembership {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  organizationId String       @map("organization_id") @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  role           MembershipRole @default(MEMBER)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("organization_memberships")
+}
+
+// ---------------------------------------------------------------------------
+// Invoices
+// ---------------------------------------------------------------------------
+
+/// A trade receivable submitted by an organisation.
+///
+/// `fingerprint` is the **identity** fingerprint: a SHA-256 over the fields
+/// that legally identify an invoice (seller tax id, series, number, template
+/// code). `contentHash` is a SHA-256 over the normalised business content.
+/// Comparing the two is what separates an exact re-upload from a conflicting
+/// submission that reuses the same identity with different numbers.
+///
+/// `@@unique([organizationId, fingerprint])` is the first line of defence
+/// against the same invoice being uploaded twice — the second line is the
+/// partial-active unique index on `FinancingRequest`.
+model Invoice {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  organizationId String @map("organization_id") @db.Uuid
+  uploadedById   String @map("uploaded_by_id") @db.Uuid
+
+  /// `issuerTaxId` is the seller, `debtorTaxId` the buyer. The names predate
+  /// Phase 3; they are kept so the Phase 2 migration stays valid.
+  invoiceNumber String @map("invoice_number") @db.VarChar(64)
+  issuerTaxId   String @map("issuer_tax_id") @db.VarChar(64)
+  debtorTaxId   String @map("debtor_tax_id") @db.VarChar(64)
+  currency      String @db.Char(3)
+
+  /// Ký hiệu hoá đơn (invoice series), e.g. `C25TAA`. Part of the identity.
+  invoiceSeries String @map("invoice_series") @db.VarChar(32)
+
+  /// Ký hiệu mẫu số (template code), e.g. `1` for GTGT. Part of the identity:
+  /// the same seller may use the same series for different templates.
+  invoiceType String @map("invoice_type") @db.VarChar(16)
+
+  /// Human-readable template name from the document (`THDon`). Display only —
+  /// never part of the identity, because providers translate it differently.
+  invoiceTypeName String? @map("invoice_type_name") @db.VarChar(160)
+
+  sellerName String  @map("seller_name") @db.VarChar(255)
+  buyerName  String  @map("buyer_name") @db.VarChar(255)
+
+  /// Same precision as every other monetary column. Rounding an invoice down
+  /// to cents at the storage layer would lose information the verifier needs.
+  amount Decimal @db.Decimal(38, 18)
+
+  /// Sum of the line items before tax. Null when the document omits it.
+  subtotalAmount Decimal? @map("subtotal_amount") @db.Decimal(38, 18)
+  /// Total tax. Null when the document omits it.
+  taxAmount Decimal? @map("tax_amount") @db.Decimal(38, 18)
+
+  issueDate DateTime @map("issue_date") @db.Date
+  /// Nullable because an e-invoice states its issue date but not its payment
+  /// terms: TT78 has `NLap` and nothing equivalent to a due date. Deriving one
+  /// (issue + 30 days) would write an invented date into a financial record,
+  /// so it stays null until someone supplies it.
+  dueDate   DateTime? @map("due_date") @db.Date
+
+  status InvoiceStatus @default(DRAFT)
+
+  /// Lowercase hex SHA-256 (64 chars) over the canonical identity tuple.
+  fingerprint String @db.VarChar(64)
+
+  /// Lowercase hex SHA-256 over the normalised business content. Equal to the
+  /// fingerprint's sibling: same identity + same contentHash is a re-upload,
+  /// same identity + different contentHash is a conflict.
+  contentHash String @map("content_hash") @db.VarChar(64)
+
+  lastVerifiedAt DateTime? @map("last_verified_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization      Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  uploadedBy        User                   @relation("InvoiceUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  document          InvoiceDocument?
+  verifications     InvoiceVerification[]
+  financingRequests FinancingRequest[]
+  blockchainRecords BlockchainRecord[]
+  blockchainOperations BlockchainOperation[]
+
+  /// Duplicate detection, scoped to the tenant: two organisations may
+  /// legitimately hold invoices that look identical to each other.
+  @@unique([organizationId, fingerprint])
+  @@index([organizationId, status, dueDate])
+  @@index([organizationId, invoiceNumber])
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@map("invoices")
+}
+
+/// Metadata for the uploaded file. The bytes live in object storage, addressed
+/// by their content hash — never in the database.
+///
+/// There is deliberately no column for the document body: an invoice XML
+/// contains buyer and seller names and tax ids, and the cheapest way to avoid
+/// leaking them through a query or a backup is not to store them here.
+model InvoiceDocument {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  /// One document per invoice at MVP: a re-upload of the same invoice is a
+  /// duplicate, not a new revision.
+  invoiceId String @unique @map("invoice_id") @db.Uuid
+
+  filename   String @db.VarChar(255)
+  mimeType   String @map("mime_type") @db.VarChar(128)
+  byteSize   Int    @map("byte_size")
+
+  /// SHA-256 of the raw bytes. Used as the storage key, so identical uploads
+  /// address the same blob and the write is idempotent.
+  contentSha256 String @map("content_sha256") @db.VarChar(64)
+
+  /// Opaque handle for the storage backend. Local file path in development;
+  /// an object key in production.
+  storageKey String @map("storage_key") @db.VarChar(512)
+
+  /// Parser profile that accepted the document, e.g. `TT78_2021`.
+  format String @db.VarChar(32)
+  /// Version of the parser that produced the stored fields.
+  parserVersion String @map("parser_version") @db.VarChar(16)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_documents")
+}
+
+/// One verification attempt against an invoice. Many per invoice on purpose:
+/// the history of failed and repeated checks is evidence, not noise.
+model InvoiceVerification {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  invoiceId String @map("invoice_id") @db.Uuid
+
+  status   VerificationStatus @default(PENDING)
+  /// Which process produced the verdict, e.g. `manual`, `anchor-crosscheck`.
+  provider String             @db.VarChar(64)
+
+  /// 0-100. Null until the provider returns a verdict.
+  score Int?
+
+  /// Structured findings from the provider. Off-chain only — see
+  /// docs/security-assumptions.md.
+  findings Json?
+
+  verifiedAt DateTime? @map("verified_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  invoice           Invoice             @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  checks            VerificationCheck[]
+  blockchainRecords BlockchainRecord[]
+
+  @@index([invoiceId, createdAt(sort: Desc)])
+  @@index([status])
+  @@map("invoice_verifications")
+}
+
+/// One individual check inside a verification run.
+///
+/// Stored as rows rather than as a JSON blob inside `InvoiceVerification`
+/// because the interesting questions are per-check: "did the signature check
+/// ever pass for this invoice", "how often does arithmetic fail across the
+/// tenant". A blob makes both a full scan.
+model VerificationCheck {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  verificationId String @map("verification_id") @db.Uuid
+
+  /// Stable machine key, e.g. `xml.structure`, `fields.required`,
+  /// `arithmetic.totals`, `duplicate.detection`, `signature.xmldsig`,
+  /// `authority.tax`. Stable because clients key off it.
+  key String @db.VarChar(64)
+
+  status  VerificationCheckStatus
+  /// Short human-readable explanation. Never contains document contents.
+  message String @db.VarChar(500)
+
+  /// Structured evidence for the check (counts, expected vs actual totals,
+  /// algorithm names). Must not contain PII — see docs/invoice-security.md.
+  details Json?
+
+  durationMs Int @map("duration_ms")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  verification InvoiceVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+
+  @@unique([verificationId, key])
+  @@index([key, status])
+  @@map("verification_checks")
+}
+
+// ---------------------------------------------------------------------------
+// Financing
+// ---------------------------------------------------------------------------
+
+/// A request to finance an invoice.
+///
+/// `activeKey` is the duplicate-financing guard. Postgres treats NULLs as
+/// distinct in a unique index, so every terminal request stores NULL (any
+/// number allowed) while a live request stores the constant `ACTIVE`. The
+/// unique pair `(invoice_id, active_key)` therefore permits at most one live
+/// request per invoice without needing a partial index Prisma cannot express.
+model FinancingRequest {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  organizationId String @map("organization_id") @db.Uuid
+  invoiceId      String @map("invoice_id") @db.Uuid
+  requestedById  String @map("requested_by_id") @db.Uuid
+
+  requestedAmount Decimal @map("requested_amount") @db.Decimal(38, 18)
+  currency        String  @db.Char(3)
+
+  status FinancingStatus @default(REQUESTED)
+
+  /// Whole days between funding and expected repayment.
+  termDays Int @map("term_days")
+
+  /// Annualised rate in basis points (1 bps = 0.01%). An integer, not a float:
+  /// interest arithmetic must not depend on binary floating point.
+  interestRateBps Int @map("interest_rate_bps")
+
+  purpose String @db.VarChar(280)
+
+  /// `ACTIVE` while the request is live, NULL once it reaches a terminal state.
+  /// Maintained by the financing-requests module.
+  activeKey String? @map("active_key") @db.VarChar(16)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice           Invoice            @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  requestedBy       User               @relation("FinancingRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  riskAssessments   RiskAssessment[]
+  blockchainRecords BlockchainRecord[]
+  blockchainOperations BlockchainOperation[]
+
+  @@unique([invoiceId, activeKey])
+  @@index([organizationId, status, createdAt(sort: Desc)])
+  @@map("financing_requests")
+}
+
+/// A scoring run against a financing request. Kept as a time series so a
+/// re-score never overwrites the evidence behind an earlier decision.
+model RiskAssessment {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  financingRequestId String @map("financing_request_id") @db.Uuid
+
+  level RiskLevel
+  /// 0-100, higher is safer.
+  score Int
+
+  /// Which model or ruleset produced the score, e.g. `rules-v1`.
+  model String @db.VarChar(64)
+
+  /// Per-factor breakdown (debtor concentration, payment history, ...).
+  factors Json?
+
+  assessedAt DateTime @default(now()) @map("assessed_at") @db.Timestamptz(3)
+
+  financingRequest  FinancingRequest   @relation(fields: [financingRequestId], references: [id], onDelete: Cascade)
+  blockchainRecords BlockchainRecord[]
+
+  @@index([financingRequestId, assessedAt(sort: Desc)])
+  @@map("risk_assessments")
+}
+
+// ---------------------------------------------------------------------------
+// Blockchain registry
+// ---------------------------------------------------------------------------
+
+/// An on-chain anchor for an off-chain fact.
+///
+/// This table stores *pointers and hashes*, never the fact itself: `payloadHash`
+/// is the commitment, and the referenced row is the evidence. Nothing here is
+/// personally identifying.
+model BlockchainRecord {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  organizationId String @map("organization_id") @db.Uuid
+
+  kind   BlockchainRecordKind
+  status BlockchainRecordStatus @default(PENDING)
+
+  chainId         Int    @map("chain_id")
+  contractAddress String @map("contract_address") @db.Char(42)
+  txHash          String @map("tx_hash") @db.Char(66)
+
+  /// Block number fits in a 32-bit integer on every EVM chain in use; using
+  /// `Int` instead of `BigInt` keeps the value JSON-serialisable.
+  blockNumber Int? @map("block_number")
+  logIndex    Int? @map("log_index")
+
+  /// Keccak-256 of the canonical off-chain payload (0x-prefixed, 66 chars).
+  payloadHash String @map("payload_hash") @db.Char(66)
+
+  invoiceId           String? @map("invoice_id") @db.Uuid
+  verificationId      String? @map("verification_id") @db.Uuid
+  financingRequestId  String? @map("financing_request_id") @db.Uuid
+  riskAssessmentId    String? @map("risk_assessment_id") @db.Uuid
+
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz(3)
+
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice          Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  verification     InvoiceVerification? @relation(fields: [verificationId], references: [id], onDelete: Restrict)
+  financingRequest FinancingRequest?   @relation(fields: [financingRequestId], references: [id], onDelete: Restrict)
+  riskAssessment   RiskAssessment?     @relation(fields: [riskAssessmentId], references: [id], onDelete: Restrict)
+
+  /// A transaction hash is only unique within a chain.
+  @@unique([chainId, txHash])
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([status])
+  // Postgres does not index foreign keys automatically. Without these, "which
+  // anchors belong to this invoice / request" is a sequential scan.
+  @@index([invoiceId])
+  @@index([financingRequestId])
+  @@map("blockchain_records")
+}
+
+// ---------------------------------------------------------------------------
+// Audit trail
+// ---------------------------------------------------------------------------
+
+/// Append-only record of who did what. No update path exists in the
+/// application; a correction is a new row.
+///
+/// `ipHash` stores a salted hash, not the client address: enough to correlate
+/// abuse, not enough to identify a person from the database alone.
+model AuditLog {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  organizationId String? @map("organization_id") @db.Uuid
+  actorUserId    String? @map("actor_user_id") @db.Uuid
+
+  /// Dotted verb, e.g. `invoice.created`, `financing.approved`.
+  action String @db.VarChar(64)
+
+  entityType String  @map("entity_type") @db.VarChar(64)
+  entityId   String? @map("entity_id") @db.Uuid
+
+  /// Structured before/after context. Must not contain raw PII; see
+  /// docs/security-assumptions.md.
+  metadata Json?
+
+  ipHash String? @map("ip_hash") @db.VarChar(64)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  actor        User?         @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1 records, preserved
+// ---------------------------------------------------------------------------
+
+/// Indexer progress per (chain, contract).
+///
+/// Infrastructure, not domain: it records how far on-chain events have been
+/// consumed so a restart or replay does not double-process them.
+model ChainSyncCursor {
+  chainId         Int      @map("chain_id")
+  contractAddress String   @map("contract_address") @db.VarChar(42)
+  lastProcessedBlock BigInt @map("last_processed_block") @default(0)
+  /// Hash of the block at `lastProcessedBlock`. Without it a reorg is
+  /// undetectable: the number stays valid while the contents change.
+  lastProcessedBlockHash String? @map("last_processed_block_hash") @db.Char(66)
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  @@id([chainId, contractAddress])
+  @@map("chain_sync_cursor")
+}
+
+/// Durable outbox for every chain action the backend intends to perform.
+///
+/// One row is created in the same database transaction as the business intent
+/// that justifies it (for example, "this invoice should be anchored"), so a
+/// crash between the decision and the broadcast cannot lose the intent.
+///
+/// `idempotencyKey` is what stops a retried HTTP request from producing a
+/// second transaction. It is derived deterministically from the operation type,
+/// the registry address and the business entity — never from a random id — and
+/// the unique index is the actual enforcement.
+///
+/// State machine:
+///
+///     PENDING -> SUBMITTING -> SUBMITTED -> CONFIRMED
+///                    |            |
+///                    +-> UNKNOWN -+      RPC timeout: outcome unknown
+///                    +-> FAILED          deterministic revert: terminal
+///     PENDING/SUBMITTING -> CANCELLED     superseded before broadcast
+///
+/// `BlockchainRecord` remains the confirmed, tenant-scoped projection; this
+/// table is the operational record and is the source of truth for retries.
+model BlockchainOperation {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  organizationId String @map("organization_id") @db.Uuid
+
+  kind   BlockchainOperationType
+  status BlockchainOperationStatus @default(PENDING)
+
+  /// "<kind>:<contractAddress>:<entityId>". Unique per registry deployment, so
+  /// a redeployed registry gets its own key space instead of inheriting stale
+  /// operations from the previous one.
+  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(200)
+
+  chainId         Int    @map("chain_id")
+  contractAddress String @map("contract_address") @db.Char(42)
+
+  /// Registry commitment (0x + 64 hex). Never the invoice identity itself.
+  commitment String @db.Char(66)
+
+  /// Opaque organization handle passed to the contract (0x + 64 hex).
+  entityId String? @map("entity_id") @db.Char(66)
+
+  /// Opaque financing handle passed to `declareFinanced` (0x + 64 hex).
+  financingRef String? @map("financing_ref") @db.Char(66)
+
+  invoiceId          String? @map("invoice_id") @db.Uuid
+  financingRequestId String? @map("financing_request_id") @db.Uuid
+
+  /// Null until broadcast. Deliberately nullable: a transaction that never left
+  /// the process has no hash, and `BlockchainRecord.tx_hash` cannot express it.
+  txHash      String? @map("tx_hash") @db.Char(66)
+  fromAddress String? @map("from_address") @db.Char(42)
+  nonce       Int?
+
+  attemptCount     Int       @default(0) @map("attempt_count")
+  lastAttemptAt    DateTime? @map("last_attempt_at") @db.Timestamptz(3)
+  /// Set by a backoff policy; a worker only claims rows whose value has passed.
+  nextAttemptAt    DateTime? @map("next_attempt_at") @db.Timestamptz(3)
+  lastErrorCode    String?   @map("last_error_code") @db.VarChar(64)
+  lastErrorMessage String?   @map("last_error_message") @db.VarChar(500)
+
+  submittedAt DateTime? @map("submitted_at") @db.Timestamptz(3)
+  confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice          Invoice?          @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  financingRequest FinancingRequest? @relation(fields: [financingRequestId], references: [id], onDelete: Restrict)
+  receipt          BlockchainTransactionReceipt?
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  /// Serves the retry worker: "which operations are due?".
+  @@index([status, nextAttemptAt])
+  @@index([invoiceId])
+  @@index([financingRequestId])
+  /// Reconciliation looks operations up by hash when a broadcast timed out.
+  @@index([txHash])
+  @@map("blockchain_operations")
+}
+
+/// Raw receipt facts for a mined transaction, kept apart from business state.
+///
+/// A receipt is evidence: it says what the chain did, not what the business
+/// meant. Storing it in its own row means a later business-state correction
+/// cannot rewrite history.
+model BlockchainTransactionReceipt {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  operationId String @unique @map("operation_id") @db.Uuid
+
+  chainId     Int    @map("chain_id")
+  txHash      String @map("tx_hash") @db.Char(66)
+  blockNumber Int    @map("block_number")
+  blockHash   String @map("block_hash") @db.Char(66)
+
+  status BlockchainReceiptStatus
+
+  /// Wei amounts exceed 2^53, so these are `BigInt` and are serialised as
+  /// decimal strings by the API layer.
+  gasUsed           BigInt @map("gas_used")
+  effectiveGasPrice BigInt @map("effective_gas_price")
+
+  logCount Int @map("log_count")
+
+  observedAt DateTime @default(now()) @map("observed_at") @db.Timestamptz(3)
+
+  operation BlockchainOperation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+
+  @@unique([chainId, txHash])
+  @@index([blockNumber])
+  @@map("blockchain_transaction_receipts")
+}
+
+/// Decoded registry events, deduplicated by their chain coordinates.
+///
+/// `(chainId, txHash, logIndex)` is the natural key of a log. The unique index
+/// makes the indexer idempotent: replaying the same block range cannot insert
+/// the same event twice, which is what allows a restart from a stale cursor.
+///
+/// `blockHash` is stored so a reorg can be detected: if the hash at a given
+/// height changes, the events above that height are deleted and the cursor is
+/// rewound before indexing resumes.
+model BlockchainEvent {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  chainId         Int    @map("chain_id")
+  contractAddress String @map("contract_address") @db.Char(42)
+  txHash          String @map("tx_hash") @db.Char(66)
+  logIndex        Int    @map("log_index")
+  blockNumber     Int    @map("block_number")
+  blockHash       String @map("block_hash") @db.Char(66)
+
+  eventType BlockchainEventType @map("event_type")
+
+  /// Registry commitment the event is about (0x + 64 hex).
+  commitment String @db.Char(66)
+  entityId   String? @map("entity_id") @db.Char(66)
+  financingRef String? @map("financing_ref") @db.Char(66)
+  /// The address that triggered the transition (registrar, financier, closer).
+  actor      String @db.Char(42)
+  generation Int?
+
+  /// Decoded event arguments. Contains only commitments and addresses; no
+  /// invoice content is ever emitted by the contract.
+  payload Json
+
+  observedAt DateTime @default(now()) @map("observed_at") @db.Timestamptz(3)
+
+  @@unique([chainId, txHash, logIndex])
+  @@index([commitment])
+  @@index([blockNumber])
+  @@map("blockchain_events")
+}
+
+/// A settlement agreement between two on-chain parties.
+///
+/// `reference` is the caller-supplied idempotency key: an off-chain system or a
+/// retried request must not create a second row for the same trade. Settlement
+/// columns stay null until the on-chain transaction is confirmed.
+model Trade {
+  id        String @id @default(uuid(7)) @db.Uuid
+  reference String @unique @db.VarChar(64)
+
+  buyerAddress  String @map("buyer_address") @db.VarChar(42)
+  sellerAddress String @map("seller_address") @db.VarChar(42)
+  asset         String @db.VarChar(16)
+
+  /// Exact token amount, 18 decimals.
+  amount Decimal @db.Decimal(38, 18)
+
+  status  TradeStatus @default(draft)
+  chainId Int         @map("chain_id")
+
+  settlementTxHash String?   @map("settlement_tx_hash") @db.VarChar(66)
+  settledAt        DateTime? @map("settled_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, createdAt(sort: Desc)])
+  @@map("trade")
+}

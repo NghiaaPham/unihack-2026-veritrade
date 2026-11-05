@@ -3,6 +3,6 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["hardhat.config.ts", "scripts/**/*.ts", "test/**/*.ts"],
-  "exclude": ["node_modules", "artifacts", "cache"]
+  "include": ["hardhat.config.ts", "scripts/**/*.ts", "test/**/*.ts", "artifacts/**/*.d.ts"],
+  "exclude": ["node_modules", "cache"]
 }

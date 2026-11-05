@@ -8,5 +8,5 @@ pnpm-lock.yaml
 artifacts
 cache
 typechain-types
-apps/api/drizzle
+apps/api/src/generated
 next-env.d.ts

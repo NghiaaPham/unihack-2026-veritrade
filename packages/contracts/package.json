@@ -7,18 +7,27 @@
   "scripts": {
     "build": "hardhat compile",
     "compile": "hardhat compile",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "hardhat compile && tsc --noEmit -p tsconfig.json",
+    "test": "hardhat test",
     "clean": "hardhat clean",
     "node": "hardhat node",
-    "deploy:fuji": "hardhat run scripts/deploy.ts --network fuji"
+    "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
+    "deploy:fuji": "hardhat run scripts/deploy.ts --network fuji",
+    "roles:local": "hardhat run scripts/init-roles.ts --network localhost",
+    "roles:fuji": "hardhat run scripts/init-roles.ts --network fuji",
+    "verify:local": "hardhat run scripts/verify.ts --network localhost",
+    "verify:fuji": "hardhat run scripts/verify.ts --network fuji",
+    "env:check": "hardhat run scripts/check-env.ts --network fuji"
   },
   "dependencies": {
     "@nomicfoundation/hardhat-viem": "3.1.0",
+    "@openzeppelin/contracts": "5.4.0",
     "dotenv": "18.0.9",
     "hardhat": "3.21.2",
     "viem": "2.57.16"
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-node-test-runner": "3.1.2",
     "@types/node": "26.6.6",
     "@veritrade/config": "workspace:*",
     "typescript": "6.0.3"

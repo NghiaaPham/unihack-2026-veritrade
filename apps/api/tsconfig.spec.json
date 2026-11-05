@@ -3,6 +3,12 @@
   "compilerOptions": {
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "drizzle.config.ts", "vitest.config.mts"],
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "prisma/**/*.ts",
+    "prisma.config.ts",
+    "vitest.config.mts"
+  ],
   "exclude": ["node_modules", "dist"]
 }

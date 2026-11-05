@@ -22,7 +22,11 @@
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
     "db:generate": "pnpm --filter @veritrade/api db:generate",
-    "db:migrate": "pnpm --filter @veritrade/api db:migrate"
+    "db:validate": "pnpm --filter @veritrade/api db:validate",
+    "db:migrate": "pnpm --filter @veritrade/api db:migrate",
+    "db:seed": "pnpm --filter @veritrade/api db:seed",
+    "db:reset": "pnpm --filter @veritrade/api db:reset",
+    "db:studio": "pnpm --filter @veritrade/api db:studio"
   },
   "devDependencies": {
     "prettier": "3.9.10",

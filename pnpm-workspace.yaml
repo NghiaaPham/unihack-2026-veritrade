@@ -7,10 +7,16 @@ packages:
 allowBuilds:
   '@nomicfoundation/edr': true
   '@parcel/watcher': true
+  '@prisma/engines': true
   '@swc/core': true
   esbuild: true
+  prisma: true
   sharp: true
   unrs-resolver: true
+  # Denied on purpose: @scarf/scarf is an analytics/telemetry postinstall that
+  # arrives transitively via swagger-ui-dist. It has no build output we need,
+  # and a dependency that phones home during install should not be allowed to.
+  '@scarf/scarf': false
 
 minimumReleaseAgeExclude:
   - '@swc/core-darwin-arm64@1.16.22'

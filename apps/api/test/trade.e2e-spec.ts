@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
-import { DatabaseService } from '../src/database/database.service.js';
+import { PrismaService } from '../src/database/prisma.service.js';
 import { createTestDatabase, type TestDatabase } from './test-database.js';
 
 const TRADE = {
@@ -52,8 +52,11 @@ describe('Trade API', () => {
     database = await createTestDatabase();
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideProvider(DatabaseService)
-      .useValue({ db: database.db })
+      // Swap the production client for one pointed at the in-process database.
+      // It is a real PrismaClient, so every query below runs through the same
+      // Prisma engine and SQL generation that production uses.
+      .overrideProvider(PrismaService)
+      .useValue(database.prisma)
       .compile();
 
     app = moduleRef.createNestApplication({ logger: false });

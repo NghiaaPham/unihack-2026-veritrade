@@ -6,6 +6,10 @@
     "moduleResolution": "NodeNext",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
+    // Prisma's generated client imports its own files with explicit `.ts`
+    // specifiers. This rewrites them to `.js` on emit, so the compiled output
+    // is valid Node ESM instead of pointing at files that no longer exist.
+    "rewriteRelativeImportExtensions": true,
     "isolatedModules": false,
     "noEmit": false,
     "declaration": false,

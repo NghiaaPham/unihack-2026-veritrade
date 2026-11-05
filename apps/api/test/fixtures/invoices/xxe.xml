@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  XXE probe. If the parser resolved the external entity, the invoice number
+  would become the contents of /etc/passwd. The service must reject the
+  document on the DOCTYPE alone, before the parser ever sees it.
+-->
+<!DOCTYPE HDon [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<HDon>
+  <DLHDon Id="INV-XXE">
+    <TTChung>
+      <KHMSHDon>1</KHMSHDon>
+      <KHHDon>C25TXX</KHHDon>
+      <SHDon>&xxe;</SHDon>
+      <NLap>2026-09-04</NLap>
+      <DVTTe>VND</DVTTe>
+    </TTChung>
+    <NDHDon>
+      <NBan>
+        <Ten>Attacker</Ten>
+        <MST>0100000001</MST>
+      </NBan>
+      <NMua>
+        <Ten>Victim</Ten>
+        <MST>0100000002</MST>
+      </NMua>
+      <TToan>
+        <TgTTTBSo>1000</TgTTTBSo>
+      </TToan>
+    </NDHDon>
+  </DLHDon>
+</HDon>

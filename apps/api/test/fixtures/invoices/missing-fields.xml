@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  No invoice number (SHDon) and no series (KHHDon): the invoice has no usable
+  identity, so the fingerprint cannot be computed and the upload must be
+  rejected rather than stored under a made-up identity.
+-->
+<HDon>
+  <DLHDon Id="INV-TT78-MISSING">
+    <TTChung>
+      <PBan>1.6</PBan>
+      <THDon>Hóa đơn giá trị gia tăng</THDon>
+      <KHMSHDon>1</KHMSHDon>
+      <NLap>2026-09-03</NLap>
+      <DVTTe>VND</DVTTe>
+    </TTChung>
+    <NDHDon>
+      <NBan>
+        <Ten>Công ty TNHH Vận tải Northwind</Ten>
+        <MST>0101234567</MST>
+      </NBan>
+      <NMua>
+        <Ten>Công ty Cổ phần Bán lẻ Minh Anh</Ten>
+        <MST>0107654321</MST>
+      </NMua>
+      <TToan>
+        <TgTCThue>1000000</TgTCThue>
+        <TgTThue>100000</TgTThue>
+        <TgTTTBSo>1100000</TgTTTBSo>
+      </TToan>
+    </NDHDon>
+  </DLHDon>
+</HDon>

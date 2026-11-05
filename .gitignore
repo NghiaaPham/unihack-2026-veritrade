@@ -13,14 +13,25 @@ next-env.d.ts
 # turbo
 .turbo/
 
+# prisma generated client — recreated by `pnpm install` / `pnpm build`
+apps/api/src/generated/
+
 # tests
 coverage/
+
+# uploaded invoice documents — buyer and seller names and tax ids live here.
+# Content-addressed, so a committed file would be a permanent data leak.
+var/
 
 # hardhat
 artifacts/
 cache/
 typechain-types/
 coverage.json
+
+# local deployment records only. A Fuji record is public chain data and is
+# meant to be committed, so the address survives a fresh clone.
+packages/contracts/deployments/31337.json
 
 # environment
 .env

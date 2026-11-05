@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
-import type { Trade } from '../database/schema.js';
+import type { Trade } from '../generated/prisma/client.js';
 import { CreateTradeDto } from './dto/create-trade.dto.js';
 import { ListTradesQueryDto } from './dto/list-trades.dto.js';
 import { TradeService, type PaginatedTrades } from './trade.service.js';

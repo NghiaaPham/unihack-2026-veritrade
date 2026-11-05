@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A structurally valid TT78 invoice carrying an XMLDSig <Signature> that embeds
+  no X.509 certificate. This is the "signature present but unverifiable" case:
+  the signature check must report UNSUPPORTED rather than PASSED, because
+  without a certificate there is nothing to check the signature against.
+  All values are invented.
+-->
+<HDon>
+  <DLHDon Id="INV-TT78-NOCERT">
+    <TTChung>
+      <PBan>1.6</PBan>
+      <THDon>Hóa đơn giá trị gia tăng</THDon>
+      <KHMSHDon>1</KHMSHDon>
+      <KHHDon>C25TAC</KHHDon>
+      <SHDon>0000300</SHDon>
+      <NLap>2026-09-05</NLap>
+      <DVTTe>VND</DVTTe>
+    </TTChung>
+    <NDHDon>
+      <NBan>
+        <Ten>Công ty TNHH Vận tải Northwind</Ten>
+        <MST>0101234567</MST>
+      </NBan>
+      <NMua>
+        <Ten>Công ty Cổ phần Bán lẻ Minh Anh</Ten>
+        <MST>0107654321</MST>
+      </NMua>
+      <DSHHDVu>
+        <HHDVu>
+          <STT>1</STT>
+          <THHDVu>Vận chuyển hàng hóa</THHDVu>
+          <SLuong>1</SLuong>
+          <DGia>2000000</DGia>
+          <ThTien>2000000</ThTien>
+        </HHDVu>
+      </DSHHDVu>
+      <TToan>
+        <TgTCThue>2000000</TgTCThue>
+        <TgTThue>200000</TgTThue>
+        <TgTTTBSo>2200000</TgTTTBSo>
+      </TToan>
+    </NDHDon>
+    <DSCKS>
+      <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+        <SignedInfo>
+          <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>
+          <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+          <Reference URI="">
+            <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+            <DigestValue>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</DigestValue>
+          </Reference>
+        </SignedInfo>
+        <SignatureValue>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</SignatureValue>
+      </Signature>
+    </DSCKS>
+  </DLHDon>
+</HDon>
