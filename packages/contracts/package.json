@@ -1,0 +1,26 @@
+{
+  "name": "@veritrade/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "VeriTrade Solidity contracts (Hardhat, Avalanche Fuji)",
+  "type": "module",
+  "scripts": {
+    "build": "hardhat compile",
+    "compile": "hardhat compile",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "clean": "hardhat clean",
+    "node": "hardhat node",
+    "deploy:fuji": "hardhat run scripts/deploy.ts --network fuji"
+  },
+  "dependencies": {
+    "@nomicfoundation/hardhat-viem": "3.1.0",
+    "dotenv": "18.0.9",
+    "hardhat": "3.21.2",
+    "viem": "2.57.16"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@veritrade/config": "workspace:*",
+    "typescript": "6.0.3"
+  }
+}

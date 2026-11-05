@@ -1,0 +1,12 @@
+node_modules
+.next
+dist
+build
+coverage
+.turbo
+pnpm-lock.yaml
+artifacts
+cache
+typechain-types
+apps/api/drizzle
+next-env.d.ts
