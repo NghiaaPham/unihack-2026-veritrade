@@ -11,7 +11,8 @@ import {
   type BlockchainTransactionReceipt,
 } from '../generated/prisma/client.js';
 import { AvalancheRpcService } from './avalanche-rpc.service.js';
-import { REGISTRY_ABI, REGISTRY_ERROR_NAMES } from './blockchain.constants.js';
+import { REGISTRY_ABI, REGISTRY_ERROR_NAMES, backoffDelay } from './blockchain.constants.js';
+import { NonceAllocatorService } from './nonce-allocator.service.js';
 import { TransactionConfirmationService } from './transaction-confirmation.service.js';
 
 const MAX_ERROR_MESSAGE_LENGTH = 500;
@@ -51,13 +52,20 @@ export interface EnqueueOperationInput {
  */
 @Injectable()
 export class BlockchainTransactionService {
-  /** Serialises submission so two requests cannot pick the same nonce. */
+  /**
+   * Keeps one process from piling submissions onto the nonce allocator at once.
+   *
+   * Not a correctness mechanism — the allocator's row lock is what stops two
+   * processes sharing a nonce. This only saves contention and makes a
+   * single-instance burst behave predictably.
+   */
   private submissionQueue: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly rpc: AvalancheRpcService,
     private readonly confirmations: TransactionConfirmationService,
+    private readonly nonces: NonceAllocatorService,
   ) {}
 
   /**
@@ -184,8 +192,16 @@ export class BlockchainTransactionService {
    * (duplicate claim, wrong lifecycle state) that no amount of retrying fixes,
    * and discovering it before signing saves gas and keeps the operation's
    * terminal state honest.
+   *
+   * `options.nonce` exists for exactly one caller: the reconciliation worker,
+   * after it has proven on chain that a previously reserved nonce was never
+   * used. Reusing that nonce fills the gap instead of leaving a hole that would
+   * stall every later transaction from the same signer.
    */
-  async submit(operation: BlockchainOperation): Promise<BlockchainOperation> {
+  async submit(
+    operation: BlockchainOperation,
+    options: { nonce?: number } = {},
+  ): Promise<BlockchainOperation> {
     if (operation.status !== BlockchainOperationStatus.PENDING) return operation;
 
     return this.exclusive(async () => {
@@ -207,7 +223,7 @@ export class BlockchainTransactionService {
         return this.fail(current.id, 'SIMULATION_REVERTED', decoded.message, decoded.name);
       }
 
-      const nonce = await this.nextNonce(account.address as Hex);
+      const nonce = options.nonce ?? (await this.nonces.allocate(account.address as Hex));
 
       await this.prisma.blockchainOperation.update({
         where: { id: current.id },
@@ -259,15 +275,28 @@ export class BlockchainTransactionService {
     });
   }
 
-  /** Records an outcome the process cannot know. Reconciled, never retried. */
+  /**
+   * Records an outcome the process cannot know. Reconciled, never retried.
+   *
+   * The retry time is pushed out with the same bounded backoff the worker uses,
+   * so a node that is refusing sends does not get a fresh attempt every time a
+   * client polls. Note that `txHash` is usually null here — the send call threw
+   * before returning one — which is why the worker resolves these by nonce
+   * rather than by hash.
+   */
   async markUnknown(id: string, error: unknown): Promise<BlockchainOperation> {
+    const current = await this.prisma.blockchainOperation.findUniqueOrThrow({
+      where: { id },
+      select: { attemptCount: true },
+    });
+
     return this.prisma.blockchainOperation.update({
       where: { id },
       data: {
         status: BlockchainOperationStatus.UNKNOWN,
         lastErrorCode: 'BROADCAST_UNCERTAIN',
         lastErrorMessage: truncate(error instanceof Error ? error.message : String(error)),
-        nextAttemptAt: new Date(Date.now() + 30_000),
+        nextAttemptAt: new Date(Date.now() + backoffDelay(current.attemptCount)),
       },
     });
   }
@@ -294,6 +323,30 @@ export class BlockchainTransactionService {
   }
 
   /**
+   * Re-broadcasts an operation whose transaction provably never landed.
+   *
+   * Only the reconciliation worker calls this, and only after checking the
+   * account's mined nonce count: if the chain has already used the nonce, a
+   * transaction exists somewhere and must be found, not replaced. Reusing the
+   * reserved nonce is what keeps the signer's nonce sequence contiguous — a
+   * fresh nonce here would leave a permanent hole and every later transaction
+   * would sit in the mempool behind it.
+   */
+  async resubmit(operation: BlockchainOperation): Promise<BlockchainOperation> {
+    const reset = await this.prisma.blockchainOperation.update({
+      where: { id: operation.id },
+      data: {
+        status: BlockchainOperationStatus.PENDING,
+        nextAttemptAt: null,
+        lastErrorCode: null,
+        lastErrorMessage: null,
+      },
+    });
+
+    return this.submit(reset, { nonce: operation.nonce ?? undefined });
+  }
+
+  /**
    * Rejects an operation that could never be encoded. Catching it at enqueue
    * means a missing argument is a failed write, not a crash in the signer.
    */
@@ -307,37 +360,6 @@ export class BlockchainTransactionService {
     ) {
       throw new Error('A FINANCING_DECLARE operation requires a financing reference');
     }
-  }
-
-  /**
-   * Next nonce, taking both the node's view and our own unsent work into
-   * account. `pending` covers transactions the node knows about; the database
-   * covers a SUBMITTED row the node has already mined (and therefore no longer
-   * counts) plus anything we reserved before a crash.
-   */
-  private async nextNonce(address: Hex): Promise<number> {
-    const pending = await this.rpc.publicClient().getTransactionCount({
-      address,
-      blockTag: 'pending',
-    });
-
-    const highest = await this.prisma.blockchainOperation.aggregate({
-      where: {
-        fromAddress: address.toLowerCase(),
-        nonce: { not: null },
-        status: {
-          in: [
-            BlockchainOperationStatus.SUBMITTING,
-            BlockchainOperationStatus.SUBMITTED,
-            BlockchainOperationStatus.UNKNOWN,
-          ],
-        },
-      },
-      _max: { nonce: true },
-    });
-
-    const reserved = highest._max.nonce ?? -1;
-    return Math.max(pending, reserved + 1);
   }
 
   private async simulate(

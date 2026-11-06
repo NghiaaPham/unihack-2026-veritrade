@@ -91,3 +91,55 @@ export const RECEIPT_POLL_INTERVAL_MS = 1_000;
  * ranges, and an unbounded scan on first run would ask for the whole chain.
  */
 export const MAX_BLOCK_RANGE = 2_000;
+
+// ---------------------------------------------------------------------------
+// Reconciliation
+// ---------------------------------------------------------------------------
+
+/** Operations the worker takes in one pass. Small enough to stay under a lease. */
+export const RECONCILE_BATCH_SIZE = 20;
+
+/** First retry delay. Doubles per attempt up to the cap. */
+export const RECONCILE_BASE_DELAY_MS = 15_000;
+
+/** Ceiling for the backoff. A stuck operation is retried at most this often. */
+export const RECONCILE_MAX_DELAY_MS = 5 * 60_000;
+
+/**
+ * How long a worker owns a claimed operation.
+ *
+ * Longer than a pass, so a slow RPC cannot cause the same row to be taken
+ * twice, and short enough that a crashed worker's rows are picked up again
+ * within a couple of minutes without operator action.
+ */
+export const OPERATION_LEASE_MS = 120_000;
+
+/** Same idea for the indexer cursor, but a pass is one `eth_getLogs` call. */
+export const INDEXER_LEASE_MS = 60_000;
+
+/**
+ * How far back the worker looks for a transaction it may have broadcast
+ * without recording the hash.
+ *
+ * Only reached when the account's mined nonce count says the nonce was spent,
+ * and the search is one `eth_getBlockByNumber` per block, so this is a
+ * deliberate compromise: ~2 minutes of Avalanche blocks, which covers a normal
+ * crash-and-restart, without turning a rare recovery into 256 RPC calls.
+ */
+export const NONCE_SCAN_BLOCKS = 64;
+
+/**
+ * Bounded exponential backoff with jitter.
+ *
+ * The cap is the important part: an operation whose RPC is down must not be
+ * retried in a tight loop, and must not be abandoned either. The jitter stops
+ * every instance from retrying the same batch at the same instant after an
+ * outage.
+ */
+export function backoffDelay(attempt: number): number {
+  const exponential = Math.min(
+    RECONCILE_MAX_DELAY_MS,
+    RECONCILE_BASE_DELAY_MS * 2 ** Math.min(Math.max(attempt, 0), 10),
+  );
+  return exponential + Math.floor(Math.random() * 0.2 * exponential);
+}
