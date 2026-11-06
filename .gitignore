@@ -50,3 +50,6 @@ pnpm-debug.log*
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+
+# local database backups (gitignored)
+backups/
