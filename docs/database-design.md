@@ -214,6 +214,44 @@ a different hash — a reorg — and rewind. The rewind deletes events at or abo
 height and clears the hash, so the next pass re-reads the canonical chain. One block per
 pass: rewinding to genesis on a bad read would be worse than being briefly stale.
 
+### `blockchain_rate_limits` (Phase 4.5, infrastructure)
+
+Fixed-window request counter, primary key `(organization_id, window_start)`.
+
+`window_start` is the clock quantised to the window size, so an increment is a single
+`INSERT … ON CONFLICT DO UPDATE SET count = count + 1`. That is why a fixed window was
+chosen over a sliding log: one atomic upsert per request instead of an insert plus a range
+scan, and two instances incrementing the same window still produce the true total.
+
+Rows are disposable — nothing reads a window after it closes. There is no cleanup job yet;
+the table grows by one row per organization per window and is safe to prune with
+`DELETE FROM blockchain_rate_limits WHERE window_start < now() - interval '1 day'`.
+
+### `blockchain_signer_nonces` (Phase 4.5, infrastructure)
+
+Primary key `(chain_id, address)`, one column of interest: `next_nonce`.
+
+This row is the serialisation point for nonce allocation. Two instances reading
+`eth_getTransactionCount` and adding one would both sign with the same nonce, and the node
+accepts both — one silently replaces the other. Taking `SELECT … FOR UPDATE` on this row
+makes the second allocator wait, so the sequence stays contiguous.
+
+Not tenant data: keyed by chain and signer address, with no organization relationship.
+
+### Lease columns (Phase 4.5)
+
+`blockchain_operations` and `chain_sync_cursor` both gained `lease_owner` and
+`lease_expires_at`. A worker claims work with a conditional update:
+
+```sql
+UPDATE … SET lease_owner = $worker, lease_expires_at = now() + interval '120 seconds'
+ WHERE id = $id AND status = $observed AND (lease_expires_at IS NULL OR lease_expires_at < now())
+```
+
+`count = 1` means the claim was won. A crashed worker leaves a lease that expires, so its
+rows are picked up without an operator. There is deliberately no separate lock table: the
+row being worked on is the lock, which means a lease cannot outlive the row it protects.
+
 ### `trade` (Phase 1, preserved)
 
 The settlement record from Phase 1: parties, asset, exact `numeric(38,18)` amount, status

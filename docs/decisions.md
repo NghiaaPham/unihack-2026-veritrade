@@ -283,20 +283,27 @@ exception, handled by `rewriteRelativeImportExtensions`. A missing `.js` is a ru
 
 ---
 
-## ADR-017 — PGlite is the test database
+## ADR-017 — PGlite by default, real PostgreSQL on demand
 
-**Status:** accepted · **Date:** 2026-11-05
+**Status:** accepted · **Date:** 2026-11-05 · **Amended:** 2026-11-06
 
-**Context.** No Docker on the development machine, but the tests must exercise real DDL and
-real constraints — a mocked Prisma client would not catch a wrong unique index.
+**Context.** The tests must exercise real DDL and real constraints — a mocked Prisma client
+would not catch a wrong unique index. PGlite (Postgres compiled to WASM) gives that with no
+external service, which is why CI and `pnpm test` use it. It is not a networked server, so
+it cannot find connection-pool, lock-contention or cross-connection problems.
 
-**Decision.** Boot PGlite (Postgres compiled to WASM), apply the committed migrations, and
-expose it over the Postgres wire protocol so Prisma reaches it through the ordinary `pg`
-adapter.
+**Decision.** Two backends behind one interface. `createTestDatabase()` returns a PGlite
+instance unless `TEST_DATABASE_URL` is set, in which case it connects to that server through
+the same `pg` adapter. `pnpm test:postgres` prepares the database and sets the variable.
 
-**Consequence.** Tests run the real query path with no external service. **This is not
-proof of PostgreSQL 17 compatibility** and must never be described as such. It does not
-exercise a networked server, connection pooling under load, or production extensions.
+**Consequence.** CI stays container-free, and a developer with Docker can run the identical
+suite against a real server in one command. The two results are reported separately and
+never merged: a green PGlite run says nothing about PostgreSQL 17.
+
+This paid for itself immediately. Running the suite against PostgreSQL 17.11 found two
+harness bugs PGlite had hidden — parallel files deadlocking on `TRUNCATE`, and the database
+outliving the process so the second run collided on unique columns. Both were fixed in the
+harness, not the application.
 
 ---
 
@@ -312,3 +319,65 @@ attested to an agreement. It cannot observe a bank transfer.
 
 **Consequence.** The system never claims money moved. Anyone adding a `FUNDED` write is
 making a factual claim the architecture cannot support, and should stop.
+
+---
+
+## ADR-019 — Nonces are allocated under a row lock, not from the node's count
+
+**Status:** accepted · **Date:** 2026-11-06
+
+**Context.** `getTransactionCount(address, 'pending') + 1` looks correct and is not. Two
+requests that read the same count sign with the same nonce; the node accepts both; one
+replaces the other in the mempool. The lost transaction never reverts, it simply never
+happens, while the API reports a hash it will never see mined. A process-local mutex cannot
+help, because the second request is in another process.
+
+**Decision.** A `blockchain_signer_nonces` row keyed by `(chain_id, address)`. Allocation
+runs in a transaction that takes `SELECT … FOR UPDATE` on it and writes
+`max(nodePending, stored) + 1`. The node read happens _before_ the transaction opens, so a
+slow RPC cannot hold the lock.
+
+**Consequence.** Allocation is correct across processes and survives a restart. It is also
+serialised: one signer means chain writes queue rather than scale, which is a throughput
+limit, not a correctness one. A gap in the sequence stalls every later transaction from that
+account, which is why the worker re-broadcasts at the _reserved_ nonce rather than allocating
+a fresh one.
+
+---
+
+## ADR-020 — Work is claimed with a lease on the row, not a lock table
+
+**Status:** accepted · **Date:** 2026-11-06
+
+**Context.** Two API instances share a database. Both may see the same due operation, and
+processing it twice means two transactions for one invoice. A lock table would add a second
+thing to keep consistent, and a lease that outlives its row is a leak.
+
+**Decision.** `lease_owner` and `lease_expires_at` on the row being worked on. A claim is a
+conditional `UPDATE … WHERE status = $observed AND (lease_expires_at IS NULL OR
+lease_expires_at < now())`; `count = 1` means the claim was won.
+
+**Consequence.** Exactly one contender wins, a crashed worker's rows are picked up when the
+lease expires, and no separate lock state can drift from the data it protects. The status is
+re-asserted in the claim, so a row that moved between the select and the update cannot be
+taken on stale information.
+
+---
+
+## ADR-021 — A fixed window, and quota spent on the attempt
+
+**Status:** accepted · **Date:** 2026-11-06
+
+**Context.** Chain writes cost AVAX. Without a limit, one authenticated client can drain a
+testnet balance, and the failure mode is silent — the API just keeps returning `202`.
+
+**Decision.** Two database-backed limits per organization: a fixed-window write counter, and
+a cap on operations in flight. Both are charged before the handler runs. Reads are never
+charged.
+
+**Consequence.** The limit survives restarts and applies across instances, which an
+in-memory counter would not. A fixed window permits a burst at the boundary; that was
+accepted in exchange for one atomic upsert per request instead of an insert plus a range
+scan. Charging the attempt rather than the outcome means a caller cannot probe with ids that
+resolve to nothing for free. Polling is free because it is how a client learns what happened
+to a write it already paid for, and charging it would push clients towards guessing.

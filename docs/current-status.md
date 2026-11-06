@@ -1,6 +1,6 @@
 # Current status
 
-**Last verified: 2026-11-05**, on the machine described in §5. Every number in this file
+**Last verified: 2026-11-06**, on the machine described in §5. Every number in this file
 came from a command run on that date. If you are reading this weeks later, re-run
 [§4](#4-how-to-re-verify-everything) before trusting it.
 
@@ -13,36 +13,37 @@ disagree, this file wins — and §4 tells you how to check.
 
 If you read nothing else:
 
-1. **Phase 4.5 has not started.** No work exists on PostgreSQL integration, a reconciliation
-   worker, multi-instance safety, rate limiting or gas measurement. The backlog is written
-   ([phase-4.5-backlog.md](phase-4.5-backlog.md)); the code is not.
-2. **Real PostgreSQL has never been used.** No migration has been applied to a networked
-   PostgreSQL server. Every database test runs against **PGlite** — Postgres compiled to
-   WASM, reached over the wire protocol. That proves the SQL parses and the constraints
-   behave; it does **not** prove compatibility with PostgreSQL 17 in production.
-3. **No Fuji deployment has occurred.** No address, no transaction hash, no verified
-   contract. `packages/contracts/deployments/` does not exist. The registry has only ever
-   run on a local Hardhat node.
-4. **Automatic transaction reconciliation is incomplete.** `UNKNOWN` operations are
-   resolved only when a client polls them. There is no background sweeper, so an operation
-   whose client disappears stays `UNKNOWN` until a human looks.
-5. **Rate limiting is missing, and multi-instance safety is unproven.** Any authenticated
-   client can submit unlimited chain writes (each costing testnet AVAX), and the event
-   indexer has no lease, so two API instances would race on the same cursor.
+1. **Real PostgreSQL 17 is now the verified target.** The three Phase 2–4 migrations and
+   the Phase 4.5 migration were applied to a networked PostgreSQL **17.11** server, the
+   development seed ran against it, and the full API suite passes on it. PGlite is no
+   longer the only evidence — see §4.1 for both runs side by side.
+2. **Automatic transaction reconciliation exists.** A background worker recovers
+   `SUBMITTING`, `SUBMITTED` and `UNKNOWN` operations with bounded backoff, a database
+   lease and a hard rule that an `UNKNOWN` transaction is never re-signed. It is covered by
+   seven tests against a real EVM.
+3. **Multi-instance coordination is database-backed where it matters.** Nonce allocation
+   takes a row lock, operations and the indexer cursor are leased. Two instances can now
+   run safely for everything except the constraints listed in §7.1.
+4. **Chain writes are metered per organization.** A fixed-window rate limit plus an
+   in-flight cap, both in the database, both enforced before the handler runs. Status
+   polling is deliberately free.
+5. **No Fuji deployment has occurred, and none was attempted.** No address, no transaction,
+   no key. Gas has been measured on a local EVM and cross-checked against a live Fuji
+   transaction's fee, but the registry has still only ever run on chain 31337.
 
 ## 2. Phase ledger
 
-| Phase   | Scope                                          | State               | Evidence                                       |
-| ------- | ---------------------------------------------- | ------------------- | ---------------------------------------------- |
-| 1       | Monorepo, health endpoints, `trade` slice      | **Complete**        | 33 trade tests, 5 health tests                 |
-| 2       | Prisma data model, 8 domain module skeletons   | **Complete**        | 3 migrations, schema validates, 4 wiring tests |
-| 3       | Auth, tenancy, XML intake, verification engine | **Complete**        | 38 invoice e2e, 25 check tests                 |
-| 4       | Avalanche registry, outbox, claim lifecycle    | **Complete (code)** | 33 contract tests, 14 blockchain e2e           |
-| **4.5** | Production hardening (DB, worker, limits)      | **Not started**     | —                                              |
-| 5       | Product surface (UI, risk scoring, approvals)  | **Not started**     | —                                              |
+| Phase   | Scope                                          | State               | Evidence                                                      |
+| ------- | ---------------------------------------------- | ------------------- | ------------------------------------------------------------- |
+| 1       | Monorepo, health endpoints, `trade` slice      | **Complete**        | 33 trade tests, 5 health tests                                |
+| 2       | Prisma data model, 8 domain module skeletons   | **Complete**        | 4 migrations, schema validates, 4 wiring tests                |
+| 3       | Auth, tenancy, XML intake, verification engine | **Complete**        | 38 invoice e2e, 25 check tests                                |
+| 4       | Avalanche registry, outbox, claim lifecycle    | **Complete (code)** | 33 contract tests, 14 blockchain e2e                          |
+| **4.5** | Production hardening (DB, worker, limits)      | **Complete (code)** | 229 API tests on real PostgreSQL, 7 recovery tests, gas table |
+| 5       | Product surface (UI, risk scoring, approvals)  | **Not started**     | —                                                             |
 
-"Complete (code)" is deliberate for Phase 4: the implementation and its tests are finished,
-but the deployment half of the phase was never executed. A complete implementation is not a
+"Complete (code)" is deliberate for Phases 4 and 4.5: the implementation and its tests are
+finished, but the deployment half was never executed. A complete implementation is not a
 deployed system.
 
 ## 3. Implementation inventory
@@ -58,28 +59,40 @@ deployed system.
 | `invoice-verification` | 7 checks, engine, aggregation, append-only run history                                       | 25 (checks) + 11 (engine)                 |
 | `financing-requests`   | Read seam + 4 lifecycle routes delegating to `blockchain`                                    | 14 (blockchain e2e)                       |
 | `risk-assessment`      | Read seam only. **No scoring logic.**                                                        | 4 (domain wiring)                         |
-| `blockchain`           | Commitment, RPC, outbox, receipts, anchoring, claims, indexer                                | 16 (commitment) + 14 (e2e)                |
+| `blockchain`           | Commitment, RPC, outbox, receipts, anchoring, claims, indexer, reconciler, quota             | 16 + 19 + 14 + 7 + 6                      |
 | `blockchain-registry`  | Phase 2 read seam over `blockchain_records`                                                  | 4 (domain wiring)                         |
 | `audit-logs`           | Append-only writer, read by history endpoints                                                | 38 (invoice e2e)                          |
 | `trade`                | Phase 1 legacy, **unauthenticated**                                                          | 33                                        |
 
+The `blockchain` module now owns eleven files. The ones added in Phase 4.5:
+
+| File                                   | Job                                                                          |
+| -------------------------------------- | ---------------------------------------------------------------------------- |
+| `nonce-allocator.service.ts`           | Hands out nonces under a row lock, so two instances cannot share one         |
+| `blockchain-reconciliation.service.ts` | The background sweeper for stuck operations                                  |
+| `blockchain-quota.service.ts`          | Per-organization write rate limit and in-flight cap                          |
+| `blockchain-quota.guard.ts`            | Applies the quota to the four chain-writing route groups, with `Retry-After` |
+
 ### 3.2 Database
 
-16 models, 3 committed migrations (562 lines of SQL total), 15 enums.
+18 models, 4 committed migrations, 15 enums.
 
 | Migration                                    | Adds                                                                                                          |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `20261105131736_init`                        | Tenant root, users, invoices, documents, verifications, financing, risk, audit, `chain_sync_cursor`, `trade`  |
 | `20261105133509_invoice_verification_engine` | Check rows, verification statuses                                                                             |
 | `20261105144000_blockchain_outbox`           | `blockchain_operations`, `blockchain_transaction_receipts`, `blockchain_events`, new enums, cursor block hash |
+| `20261106090000_phase45_leases_and_quota`    | Lease columns on operations and the cursor, `blockchain_rate_limits`, `blockchain_signer_nonces`              |
 
-Migrations were authored with `prisma migrate diff` and applied **only** to PGlite.
+All four are applied to real PostgreSQL 17.11 **and** replayed from scratch by the PGlite
+suite. The Phase 4.5 migration was authored with `prisma migrate diff` before any database
+had it, then applied to a live server.
 
 ### 3.3 Smart contracts
 
 | Contract                       | State                                                                                                               |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `VeriTradeInvoiceRegistry.sol` | Phase 4. Compiles to 4 308 bytes, solc 0.8.28, EVM target `cancun`. 33 tests.                                       |
+| `VeriTradeInvoiceRegistry.sol` | Phase 4. Compiles to 4 308 bytes, solc 0.8.28, EVM target `cancun`. 33 tests. Gas measured (see §4.3).              |
 | `VeriTrade.sol`                | Phase 1. Compiles. **Not used by the API**, not tested, no deployment path. Treat as dead code awaiting a decision. |
 
 ### 3.4 Web
@@ -91,7 +104,11 @@ currently an API demo.
 ### 3.5 Scripts and tooling
 
 `packages/contracts/scripts/`: `deploy.ts`, `init-roles.ts`, `verify.ts`, `check-env.ts`,
-plus `lib/guards.ts` (chain-id and confirmation guards) and `lib/deployment-record.ts`.
+`measure-gas.ts`, plus `lib/guards.ts` (chain-id and confirmation guards) and
+`lib/deployment-record.ts`.
+
+`apps/api/scripts/`: `test-postgres.mjs` (creates the test database if absent, migrates it,
+runs the suite against it).
 
 ## 4. How to re-verify everything
 
@@ -107,79 +124,123 @@ current tree.
 Per-package:
 
 ```bash
-pnpm --filter @veritrade/api test            # Vitest, 13 files
+pnpm --filter @veritrade/api test            # Vitest on PGlite, 16 files
+pnpm --filter @veritrade/api test:postgres   # Vitest on a real server, 16 files
 pnpm --filter @veritrade/contracts test      # Hardhat node:test, 1 file
 ```
 
-### Test evidence
+### 4.1 Test evidence
 
-Reported at the end of Phase 4, and **independently re-executed on 2026-11-05**:
+**API suite, 229 tests across 16 files, run twice on 2026-11-06:**
 
-| Suite               | Reported    | Re-executed     | Files      |
-| ------------------- | ----------- | --------------- | ---------- |
-| API (Vitest)        | 197 passing | **197 passing** | 13         |
-| Contracts (Hardhat) | 33 passing  | **33 passing**  | 1          |
-| `pnpm lint`         | pass        | **pass**        | —          |
-| `pnpm typecheck`    | pass        | **pass**        | 3 packages |
-| `pnpm build`        | pass        | **pass**        | 3 packages |
-| `pnpm format:check` | pass        | **pass**        | —          |
-| `prisma validate`   | pass        | **pass**        | —          |
+| Engine                       | Command         | Result          | Duration |
+| ---------------------------- | --------------- | --------------- | -------- |
+| PGlite (in-process WASM)     | `pnpm test`     | **229 passing** | 5.3 s    |
+| PostgreSQL 17.11 (networked) | `test:postgres` | **229 passing** | 9.2 s    |
+
+The second row is the one that matters. The first is what CI runs, because it needs no
+container.
+
+| Check                   | Result         | Notes                                           |
+| ----------------------- | -------------- | ----------------------------------------------- |
+| `pnpm lint`             | **pass**       | api + web                                       |
+| `pnpm typecheck`        | **pass**       | api src + api specs + web + contracts           |
+| `pnpm build`            | **pass**       | 3 packages                                      |
+| `pnpm format:check`     | **pass**       | —                                               |
+| `prisma validate`       | **pass**       | —                                               |
+| `prisma migrate deploy` | **pass**       | 4 migrations, PostgreSQL 17.11                  |
+| `prisma db seed`        | **pass**       | idempotent; second run produces the same counts |
+| Contracts               | **33 passing** | Hardhat, real EVM                               |
 
 Per-file API breakdown, measured:
 
-| File                            | Tests | Covers                                                    |
-| ------------------------------- | ----- | --------------------------------------------------------- |
-| `trade.e2e-spec.ts`             | 33    | Phase 1 trade API, unchanged                              |
-| `invoice-api.e2e-spec.ts`       | 38    | Invoice endpoints, tenancy, duplicates, upload, history   |
-| `verification-checks.spec.ts`   | 25    | Each check's pass/fail/skip/unsupported path              |
-| `invoice-xml-parser.spec.ts`    | 18    | Profiles, XXE/DTD rejection, UTF-8, depth limits          |
-| `invoice-fingerprint.spec.ts`   | 18    | Determinism, identity sensitivity, content vs identity    |
-| `blockchain-commitment.spec.ts` | 16    | Golden vector, domain separation, ABI drift               |
-| `blockchain.e2e-spec.ts`        | 14    | Anchor, idempotency, collision, lifecycle, indexer, reorg |
-| `verification-engine.spec.ts`   | 11    | Aggregation, throwing check, no driver text stored        |
-| `schema.spec.ts`                | 8     | Tenant-scoped uniqueness, FK rules, decimal round trip    |
-| `health.e2e-spec.ts`            | 5     | Liveness, readiness, `503`, no error leak                 |
-| `domain-modules.spec.ts`        | 4     | All 8 domain services resolve                             |
-| `pg-interop.spec.ts`            | 4     | Built output links under Node ESM                         |
-| `seed-compat.spec.ts`           | 3     | Seed modules load under type stripping                    |
+| File                            | Tests | Covers                                                      |
+| ------------------------------- | ----- | ----------------------------------------------------------- |
+| `trade.e2e-spec.ts`             | 33    | Phase 1 trade API, unchanged                                |
+| `invoice-api.e2e-spec.ts`       | 38    | Invoice endpoints, tenancy, duplicates, upload, history     |
+| `verification-checks.spec.ts`   | 25    | Each check's pass/fail/skip/unsupported path                |
+| `blockchain-hardening.spec.ts`  | 19    | Backoff bounds, leases, concurrent claims, quota, atomicity |
+| `invoice-xml-parser.spec.ts`    | 18    | Profiles, XXE/DTD rejection, UTF-8, depth limits            |
+| `invoice-fingerprint.spec.ts`   | 18    | Determinism, identity sensitivity, content vs identity      |
+| `blockchain-commitment.spec.ts` | 16    | Golden vector, domain separation, ABI drift                 |
+| `blockchain.e2e-spec.ts`        | 14    | Anchor, idempotency, collision, lifecycle, indexer, reorg   |
+| `verification-engine.spec.ts`   | 11    | Aggregation, throwing check, no driver text stored          |
+| `schema.spec.ts`                | 8     | Tenant-scoped uniqueness, FK rules, decimal round trip      |
+| `blockchain-recovery.spec.ts`   | 7     | Stuck transactions resolved against a real EVM              |
+| `blockchain-quota.e2e-spec.ts`  | 6     | 429 + `Retry-After`, polling free, auth before metering     |
+| `health.e2e-spec.ts`            | 5     | Liveness, readiness, `503`, no error leak                   |
+| `domain-modules.spec.ts`        | 4     | All 8 domain services resolve                               |
+| `pg-interop.spec.ts`            | 4     | Built output links under Node ESM                           |
+| `seed-compat.spec.ts`           | 3     | Seed modules load under type stripping                      |
 
-**What the test suite does not prove.** It runs against PGlite, a local Hardhat node and a
-local filesystem. It proves logic, SQL DDL, and the HTTP contract. It does not prove
-PostgreSQL 17 behaviour under load, Fuji behaviour, a real object store, or a reverse proxy.
+**What the suite still does not prove.** It runs against a local Hardhat node and a local
+filesystem. It does not prove Fuji behaviour, a real object store, a reverse proxy, or
+PostgreSQL under concurrent load from several API instances. The multi-instance tests use
+two clients in one process, not two processes on two machines.
+
+### 4.2 What real PostgreSQL changed
+
+Running the existing suite against a real server found two things PGlite had hidden. Both
+were test-harness bugs, not application bugs, and both are fixed:
+
+1. **Parallel test files deadlocked.** Every suite truncates all 18 tables. Against one
+   WASM engine that was harmless; against a real server two files take `AccessExclusive`
+   locks in different orders and Postgres aborts one with `40P01`. `fileParallelism` is now
+   off when `TEST_DATABASE_URL` is set.
+2. **The database outlived the process.** A real server keeps the previous run's rows, so
+   the second run collided on unique emails and slugs. The harness now truncates on open.
+
+Neither could have been found with PGlite. That is the argument for this task existing.
+
+### 4.3 Gas measurements
+
+Measured on a local Hardhat node, chain 31337, `scripts/measure-gas.ts`:
+
+| Operation                 | Gas used  | Note                    |
+| ------------------------- | --------- | ----------------------- |
+| Deployment                | 1 014 411 | full registry, no proxy |
+| `grantRole` (either role) | 51 477    | per role, two needed    |
+| `register` (first claim)  | 101 512   | the common write        |
+| `declareFinanced`         | 78 856    | —                       |
+| `cancelReservation`       | 39 452    | —                       |
+| `closeClaim`              | 34 155    | —                       |
+
+Gas **units** are a property of the bytecode and transfer to Fuji unchanged. The **price**
+does not: it was 1.08e9 wei/gas on the local node and 160 wei/gas on Fuji when measured.
+A `register` therefore costs about 1.6e-11 AVAX on Fuji today — verified against a real
+mined transaction that paid 160 wei/gas for 75 000 gas, not inferred from `eth_gasPrice`
+alone.
 
 ## 5. Infrastructure reality (this machine)
 
-| Capability                | State                                    | Consequence                                              |
-| ------------------------- | ---------------------------------------- | -------------------------------------------------------- |
-| Node.js                   | 26.13.0                                  | matches `.nvmrc`                                         |
-| pnpm                      | 12.16.1                                  | matches `packageManager`                                 |
-| Docker                    | **not installed**                        | `db:up`, `db:migrate`, `db:seed`, `db:studio` cannot run |
-| `psql`                    | **not installed**                        | no manual database access                                |
-| Port 5432                 | **closed**                               | no PostgreSQL anywhere                                   |
-| `apps/api/.env`           | **absent**                               | must be created from `.env.example` before the API boots |
-| `packages/contracts/.env` | **absent**                               | deployment scripts refuse, correctly                     |
-| Fuji RPC                  | **reachable** (`eth_chainId` → `0xa869`) | network is up; nothing has been sent to it               |
-| Fuji deployer key         | **absent**                               | `deploy:fuji` refuses                                    |
+| Capability                | State                                    | Consequence                                 |
+| ------------------------- | ---------------------------------------- | ------------------------------------------- |
+| Node.js                   | 26.13.0                                  | matches `.nvmrc`                            |
+| pnpm                      | 12.16.1                                  | matches `packageManager`                    |
+| Docker                    | **installed, daemon running** (29.9.2)   | `db:*` scripts work                         |
+| PostgreSQL                | **17.11-alpine container, healthy**      | on `127.0.0.1:5432`                         |
+| `psql` on the host        | **not installed**                        | use `docker exec veritrade-postgres psql …` |
+| `apps/api/.env`           | **present locally, git-ignored**         | generated from `.env.example`               |
+| `packages/contracts/.env` | **absent**                               | deployment scripts refuse, correctly        |
+| Fuji RPC                  | **reachable** (`eth_chainId` → `0xa869`) | network is up; nothing has been sent to it  |
+| Fuji deployer key         | **absent**                               | `deploy:fuji` refuses                       |
 
-Verified locally, without a database:
+Verified against the live server:
 
 ```
 GET /api/v1/health      → 200 {"status":"ok", ...}
-GET /api/v1/health/db   → 503 {"database":{"connected":false,"error":"database unreachable"}}
+GET /api/v1/health/db   → 200 {"database":{"connected":true,"latencyMs":…}}
 GET /api/docs           → 200 text/html, <title>Swagger UI</title>
-GET /api/docs-json      → 20 documented paths
+GET /api/docs-json      → 21 documented paths
 ```
-
-The `503` body carries no driver text — the Prisma error is logged, not returned. That is
-intentional and tested.
 
 ## 6. Unresolved security issues, ranked
 
 1. **The legacy `trade` endpoints are unauthenticated.** `/api/trades` accepts anonymous
    writes. They exist for the regression suite. A deployment must remove or route around
    them. This is the highest-severity item in the repository.
-2. **No rate limiting anywhere.** Unlimited invoice submissions, unlimited login attempts
-   (no lockout), unlimited chain writes. Each chain write spends real testnet AVAX.
+2. **Rate limiting covers chain writes only.** Invoice uploads, login attempts and the
+   legacy trade routes are still unmetered. Login in particular has no lockout.
 3. **The deployer key is a plain environment variable.** No KMS, no rotation, no separation
    between the deployer and the runtime signer. One process compromise is total.
 4. **Registry admin is a single point of control.** It can pause all transitions and close
@@ -193,26 +254,41 @@ intentional and tested.
    permanent, so "delete the invoice" cannot mean "delete the trace it was financed".
 8. **No document integrity check on read.** `content_sha256` is stored but not re-verified
    when a blob is read back.
-9. **Single-instance indexer.** No lease; two instances would double-process or race.
-10. **`VeriTrade.sol` is dead code.** Unused, untested, and confusing to a new contributor.
+9. **`VeriTrade.sol` is dead code.** Unused, untested, and confusing to a new contributor.
+
+Closed in Phase 4.5: unlimited chain writes, the stalled-`UNKNOWN` sweep, the unleased
+indexer, and process-local nonce allocation.
 
 Full threat models: [security-assumptions.md](security-assumptions.md),
 [blockchain-security.md](blockchain-security.md), [invoice-security.md](invoice-security.md).
 
 ## 7. Known technical debt
 
-| Debt                                                            | Why it exists                                | Cost of leaving it                                                                                                                |
-| --------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/web` is a shell                                           | No frontend work has been scheduled          | the product cannot be demoed without curl                                                                                         |
-| Two docs sets: `architecture.md` + `blockchain-architecture.md` | Phase 4 added a layer                        | a reader must read both to see the whole picture                                                                                  |
-| `trade` module kept                                             | proved the Drizzle→Prisma swap was honest    | unauthenticated surface, extra tests, reader confusion                                                                            |
-| `blockchain-registry` and `blockchain` both exist               | the Phase 2 seam is still asserted by a test | two similar names for different jobs                                                                                              |
-| No reconciliation worker                                        | polling was enough for a demo                | operations can stall in `UNKNOWN` forever                                                                                         |
-| Indexer has no lease                                            | one instance was assumed                     | not horizontally scalable                                                                                                         |
-| Verification status `PASSED` unreachable                        | the tax-authority check has no integration   | anchoring depends on `PARTIAL`, which reads oddly                                                                                 |
-| Seed data is synthetic only                                     | no real documents available                  | demos show invented invoices                                                                                                      |
-| No gas measurements                                             | never deployed                               | cannot budget a real deployment                                                                                                   |
-| Docs are lowercase kebab-case                                   | matches 13 pre-existing files                | the phase brief asked for uppercase names; see [ADR-014](decisions.md#adr-014--documentation-filenames-stay-lowercase-kebab-case) |
+### 7.1 Remaining single-instance constraints
+
+Multi-instance is now safe for nonce allocation, operation processing and event indexing.
+These are the parts that are still single-instance by design or by omission:
+
+| Constraint                           | Why it remains                                                                                          | Impact                                                                                        |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| One signer address per deployment    | The nonce allocator is keyed by `(chainId, address)`, so it serialises writers rather than scaling them | Chain writes queue behind one account. Throughput is bounded by block time, not by instances. |
+| Reconciliation is a poll loop        | Each instance runs its own timer; the lease makes that safe but not efficient                           | N instances mean N idle queries per interval. Harmless, wasteful.                             |
+| No leader election for the indexer   | The cursor lease is taken per pass, so two instances alternate rather than split                        | Fine. A dedicated indexer process would be tidier, not safer.                                 |
+| `PrismaService` pool is per process  | `POOL_SIZE = 10` per instance                                                                           | PostgreSQL `max_connections` becomes the limit at roughly 10 instances.                       |
+| Nonce counter survives a chain reset | `blockchain_signer_nonces` is database state, not chain state                                           | A reset local chain needs the manual procedure in `docs/transaction-reconciliation.md` §9.    |
+
+### 7.2 Other debt
+
+| Debt                                                            | Why it exists                                                      | Cost of leaving it                                                                                                                                                                                     |
+| --------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `apps/web` is a shell                                           | No frontend work has been scheduled                                | the product cannot be demoed without curl                                                                                                                                                              |
+| Two docs sets: `architecture.md` + `blockchain-architecture.md` | Phase 4 added a layer                                              | a reader must read both to see the whole picture                                                                                                                                                       |
+| `trade` module kept                                             | proved the Drizzle→Prisma swap was honest                          | unauthenticated surface, extra tests, reader confusion                                                                                                                                                 |
+| `blockchain-registry` and `blockchain` both exist               | the Phase 2 seam is still asserted by a test                       | two similar names for different jobs                                                                                                                                                                   |
+| Verification status `PASSED` unreachable                        | the tax-authority check has no integration                         | anchoring depends on `PARTIAL`, which reads oddly                                                                                                                                                      |
+| Seed data is synthetic only                                     | no real documents available                                        | demos show invented invoices                                                                                                                                                                           |
+| Seed writes a fake `chainId: 43113` `blockchain_records` row    | `prisma/seed.ts` fabricates a Fuji confirmation with `0x0000…0000` | if the API is later pointed at real Fuji, this row reads as "confirmed on Fuji" for an invoice that was never anchored; delete it (or gate it) before any Fuji wiring. Not a chain reset — a seed bug. |
+| Docs are lowercase kebab-case                                   | matches 13 pre-existing files                                      | the phase brief asked for uppercase names; see [ADR-014](decisions.md#adr-014--documentation-filenames-stay-lowercase-kebab-case)                                                                      |
 
 ## 8. Fuji deployment status
 
@@ -225,25 +301,32 @@ Full threat models: [security-assumptions.md](security-assumptions.md),
 | Roles granted on chain    | no                                              |
 | Bytecode verified         | only on a local Hardhat node                    |
 | Snowtrace submission      | never attempted                                 |
+| Gas budget                | measured locally, see §4.3                      |
 
 `pnpm --filter @veritrade/contracts env:check` currently exits 1 with
 _"RPC reachable, but no deployer key"_. That is the correct state.
+
+**Do not confuse the above with the database.** `prisma/seed.ts` writes a fabricated
+`blockchain_records` row at `chainId: 43113` with `contractAddress 0x0000…0000` and
+`txHash 0xabab…`. It exists only in the API's Postgres, is not on any chain, and must be
+removed before the API is pointed at a real Fuji registry — otherwise an invoice reports as
+"confirmed on Fuji" though it was never anchored. The contract deploy script is unaffected:
+it reads `packages/contracts/deployments/43113.json`, which does not exist yet.
 
 ## 9. Next recommended tasks
 
 In order. Full detail, acceptance criteria and verification commands are in
 [phase-4.5-backlog.md](phase-4.5-backlog.md).
 
-1. **PG-1 — Validate migrations against real PostgreSQL 17.** Everything else that touches
-   the database is guesswork until this is done. It is also the cheapest task: one machine
-   with Docker.
-2. **SEC-1 — Remove or authenticate the `trade` endpoints.** The only anonymous write path.
-3. **SEC-2 — Add rate limiting** to auth and to chain-writing routes.
-4. **BC-1 — Reconciliation worker** with a lease, so `UNKNOWN` resolves without a client.
-5. **BC-2 — Indexer lease / single-writer guarantee.**
-6. **BC-3 — Gas measurements** on Fuji, so a deployment has a budget.
-7. **FUJI-1 — Fuji deployment dry run**, only after 1–6, with explicit approval.
-8. **WEB-1 — Minimal UI** for upload → verify → anchor → reserve, if a demo needs it.
+1. **SEC-0 — Remove or authenticate the `trade` endpoints.** The only anonymous write path,
+   and now the highest-severity item left.
+2. **SEC-1 — Rate limiting for auth and invoice intake.** The chain is metered; the rest of
+   the surface is not, and login has no lockout.
+3. **SEC-2 — Key management.** Move the signer out of a plain environment variable before
+   any real value is at stake.
+4. **FUJI-1 — Fuji deployment**, with explicit approval, now that gas is known and the
+   guards are proven.
+5. **WEB-1 — Minimal UI** for upload → verify → anchor → reserve, if a demo needs it.
 
 ## 10. How this document stays honest
 
@@ -251,5 +334,4 @@ In order. Full detail, acceptance criteria and verification commands are in
 - "Not run" is written as "not run", never softened to "should work".
 - When a check is re-run and the numbers change, the old number is replaced, not appended —
   this is a status page, not a changelog.
-- Phase 4.5 work, when it starts, gets its own section here rather than being implied by a
-  commit message.
+- PGlite and PostgreSQL results are reported separately, never merged into one green line.

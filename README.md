@@ -312,12 +312,17 @@ the ordinary `pg` adapter. The tests therefore exercise the actual DDL, includin
 unique constraints behind the `409` response.
 
 ```bash
-pnpm test                                  # all workspaces
-pnpm --filter @veritrade/api test          # one workspace
+pnpm test                                     # all workspaces
+pnpm --filter @veritrade/api test             # one workspace, PGlite
+pnpm --filter @veritrade/api test:postgres    # the same suite on a real PostgreSQL
 pnpm --filter @veritrade/api test:watch
 ```
 
-197 tests across thirteen files:
+`test:postgres` creates the test database if it is missing, applies the committed
+migrations, and refuses to run unless the database name contains `test` — it truncates
+every table. Start the server first with `pnpm db:up`.
+
+229 tests across sixteen files:
 
 | File                            | Covers                                                                                                  |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -334,10 +339,13 @@ pnpm --filter @veritrade/api test:watch
 | `seed-compat.spec.ts`           | The modules the seed imports load under Node's type stripping, and hash identically to the service      |
 | `blockchain-commitment.spec.ts` | The golden commitment vector, domain separation, ABI drift against the compiled artifact, RPC guards    |
 | `blockchain.e2e-spec.ts`        | Anchor, idempotency, cross-org collision, full lifecycle, cancellation, indexer replay and a real reorg |
+| `blockchain-hardening.spec.ts`  | Backoff bounds, lease claim and takeover, concurrent claims, quota atomicity, per-tenant windows        |
+| `blockchain-recovery.spec.ts`   | Stuck transactions against a real EVM: settle by hash, adopt by nonce, re-broadcast, never re-sign      |
+| `blockchain-quota.e2e-spec.ts`  | `429` with `Retry-After`, polling not charged, auth before metering, pending cap                        |
 
-`blockchain.e2e-spec.ts` is the only test that starts a second process: it runs
-`hardhat node` on port 8546, deploys the compiled contract, grants both roles, and then
-sets the chain environment before importing `AppModule`. That ordering is not
+`blockchain.e2e-spec.ts` and `blockchain-recovery.spec.ts` start a second process: they run
+`hardhat node` on ports 8546 and 8547, deploy the compiled contract, grant the roles, and
+then set the chain environment before importing `AppModule`. That ordering is not
 cosmetic — `ConfigModule.forRoot({ validate })` runs when the module is evaluated, so a
 static import would freeze the chain id before the test could set it.
 
@@ -401,23 +409,22 @@ Hand-written code must not use `.ts` specifiers.
 
 ## Deliberately not included yet
 
-Phase 4 added the Avalanche registry, the outbox and the lifecycle endpoints. The HTTP
-surface is now the health endpoints, the legacy trade endpoints, `POST /api/v1/auth/*`,
-the nine invoice endpoints, the four financing-request routes, and
+Phase 4.5 hardened the chain surface. The HTTP surface is unchanged: the health
+endpoints, the legacy trade endpoints, `POST /api/v1/auth/*`, the nine invoice
+endpoints, the four financing-request routes, and
 `GET /api/v1/blockchain/transactions/:id`.
 
 Deferred, and honestly so:
 
 - **No Fuji deployment.** The contract compiles, the scripts work against a local EVM,
-  and the Fuji guards fire — but no transaction has been sent to 43113. There is no
-  deployer key in this repository and none was generated. Everything below the RPC
-  boundary is proven; the deployment itself is not.
-- **No automated reconciler.** `UNKNOWN` operations are reconciled when a client polls
-  them. A worker that sweeps stale operations on a timer is not written, so an operation
-  whose client disappears stays `UNKNOWN` until someone looks.
-- **The indexer is a single-instance poller.** It is restart-safe and handles a reorg by
-  rewinding one block per pass, but two API instances both polling would race on the
-  same cursor. A real deployment needs a lease or a separate indexer process.
+  the guards fire, and gas has been measured — but no transaction has been sent to 43113.
+  There is no deployer key in this repository and none was generated. Everything below the
+  RPC boundary is proven; the deployment itself is not.
+- **One signer, serialised.** Nonce allocation is database-backed, so two instances cannot
+  collide, but they still share one account. Chain writes queue rather than scale.
+- **Rate limiting covers chain writes only.** Invoice intake, login (no lockout) and the
+  legacy trade routes are unmetered. See
+  [docs/blockchain-security.md](docs/blockchain-security.md) §9.1.
 - **Tax-authority verification.** No authorised integration exists, so the check reports
   `UNSUPPORTED` on every run rather than pretending. `PASSED` is therefore unreachable
   by design, which means anchoring requires a `PARTIAL` result — the API says so in the
@@ -428,8 +435,7 @@ Deferred, and honestly so:
 - **Production document storage.** `LocalDocumentStorage` is a development
   implementation; [docs/invoice-security.md](docs/invoice-security.md) lists what an
   object-store implementation must provide.
-- **Rate limiting, CI workflows, an ABI-driven API client.**
-- **Docker on this machine.** `docker-compose.yml` is correct, but Docker is not
-  installed here, so migrations were never applied to a server-backed Postgres. Every
-  test runs against PGlite over the wire protocol — real Postgres SQL, not a real
-  Postgres server. See [docs/development-setup.md](docs/development-setup.md).
+- **A product UI.** `apps/web` is a landing page and a health route. Every demo of the
+  workflow is an API demo.
+- **Key management.** The runtime signer is a plain environment variable. No KMS, no
+  rotation, no separation from the deployer.

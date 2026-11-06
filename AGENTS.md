@@ -80,17 +80,17 @@ apps/api/
   src/invoices/              intake, XML parser, fingerprint, storage
   src/invoice-verification/  check engine, checks/, presenter
   src/financing-requests/    request read seam + lifecycle routes
-  src/blockchain/            commitment, outbox, receipts, indexer
+  src/blockchain/            commitment, outbox, receipts, indexer, reconciler, quota
   src/blockchain-registry/   Phase 2 read seam over confirmed anchors
   src/trade/                 Phase 1 legacy, unauthenticated, kept for regression
-  prisma/schema.prisma       16 models
-  prisma/migrations/         3 migrations, committed SQL
-  test/                      13 Vitest files
+  prisma/schema.prisma       18 models
+  prisma/migrations/         4 migrations, committed SQL
+  test/                      16 Vitest files
 apps/web/src/app/            layout, page, api/health route
 packages/contracts/
   contracts/VeriTradeInvoiceRegistry.sol   the registry (Phase 4)
   contracts/VeriTrade.sol                  Phase 1, unused by the API
-  scripts/                                 deploy, roles, verify, env check + guards
+  scripts/                                 deploy, roles, verify, env check, gas measurement + guards
   test/                                    Hardhat node:test suite
 packages/config/             shared tsconfig presets (no build step)
 docs/                        see §12
@@ -104,7 +104,8 @@ pnpm dev                            # web :3000 + api :3001
 pnpm build                          # turbo, dependency-ordered
 pnpm lint                           # ESLint, api + web
 pnpm typecheck                      # tsc --noEmit, all three packages
-pnpm test                           # Vitest (api) + Hardhat (contracts)
+pnpm test                           # Vitest (api, PGlite) + Hardhat (contracts)
+pnpm --filter @veritrade/api test:postgres   # the API suite on a real PostgreSQL (needs Docker)
 pnpm format                         # Prettier write
 pnpm format:check                   # Prettier check — CI gate
 ```
@@ -228,5 +229,6 @@ A task is done when **all** of these are true:
 | [`docs/transaction-reconciliation.md`](docs/transaction-reconciliation.md) | Touching the outbox, retries or the indexer    |
 | [`docs/blockchain-security.md`](docs/blockchain-security.md)               | Roles, admin powers, on-chain threat model     |
 | [`docs/avalanche-fuji-deployment.md`](docs/avalanche-fuji-deployment.md)   | Deploying anything                             |
+| [`docs/fuji-deployment-runbook.md`](docs/fuji-deployment-runbook.md)       | Step-by-step Fuji deploy + API wiring          |
 | [`docs/security-assumptions.md`](docs/security-assumptions.md)             | Assessing risk before a demo                   |
 | [`docs/development-setup.md`](docs/development-setup.md)                   | Troubleshooting a local environment            |

@@ -67,19 +67,23 @@ Neither can overwrite the other.
 
 `apps/api/src/blockchain/`
 
-| File                                  | Responsibility                                                    |
-| ------------------------------------- | ----------------------------------------------------------------- |
-| `avalanche-rpc.service.ts`            | Owns the viem clients and the signer. Only place the key is read. |
-| `invoice-commitment.service.ts`       | Digest, commitment, entity and financing handles.                 |
-| `blockchain-transaction.service.ts`   | Outbox: enqueue, idempotency, nonce, simulate, send, `drive()`.   |
-| `transaction-confirmation.service.ts` | Receipt persistence, terminal status, business projection, audit. |
-| `invoice-anchor.service.ts`           | Anchoring workflow + verification gate + anchor status.           |
-| `financing-claim.service.ts`          | Reserve, declare financed, close, cancel reservation.             |
-| `blockchain-event-indexer.service.ts` | `eth_getLogs` in bounded ranges, dedupe, reorg rewind.            |
-| `registry-call.ts`                    | Calldata encoding per operation kind.                             |
-| `blockchain.constants.ts`             | ABI slice, domain separator, status mapping, limits.              |
-| `operation-status.ts`                 | Operation state → HTTP status, shared by both controllers.        |
-| `blockchain.presenter.ts`             | API representations.                                              |
+| File                                   | Responsibility                                                         |
+| -------------------------------------- | ---------------------------------------------------------------------- |
+| `avalanche-rpc.service.ts`             | Owns the viem clients and the signer. Only place the key is read.      |
+| `invoice-commitment.service.ts`        | Digest, commitment, entity and financing handles.                      |
+| `blockchain-transaction.service.ts`    | Outbox: enqueue, idempotency, simulate, send, `drive()`, `resubmit()`. |
+| `nonce-allocator.service.ts`           | Row-locked nonce allocation across instances.                          |
+| `transaction-confirmation.service.ts`  | Receipt persistence, terminal status, business projection, audit.      |
+| `invoice-anchor.service.ts`            | Anchoring workflow + verification gate + anchor status.                |
+| `financing-claim.service.ts`           | Reserve, declare financed, close, cancel reservation.                  |
+| `blockchain-event-indexer.service.ts`  | `eth_getLogs` in bounded ranges, dedupe, reorg rewind, cursor lease.   |
+| `blockchain-reconciliation.service.ts` | Background sweep of `SUBMITTING`/`SUBMITTED`/`UNKNOWN`.                |
+| `blockchain-quota.service.ts`          | Per-organization write rate limit and in-flight cap.                   |
+| `blockchain-quota.guard.ts`            | Applies the quota to chain-writing routes, with `Retry-After`.         |
+| `registry-call.ts`                     | Calldata encoding per operation kind.                                  |
+| `blockchain.constants.ts`              | ABI slice, domain separator, status mapping, limits.                   |
+| `operation-status.ts`                  | Operation state → HTTP status, shared by both controllers.             |
+| `blockchain.presenter.ts`              | API representations.                                                   |
 
 `blockchain-registry` (Phase 2) still exists and still serves
 `BlockchainRecord` lookups by transaction hash. It is the tenant-scoped confirmed
@@ -156,6 +160,20 @@ and the residual leak it accepts.
   authoritative check that a caller may act for an organization lives in the API's
   tenant model.
 
+## Background work
+
+Two workers live in this module. Both are off unless configured, and both stay idle when no
+registry address is set.
+
+| Worker         | Switch                             | Default | Job                                              |
+| -------------- | ---------------------------------- | ------- | ------------------------------------------------ |
+| Event indexer  | `BLOCKCHAIN_INDEXER_INTERVAL_MS`   | `0`     | Reads registry events into `blockchain_events`   |
+| Reconciliation | `BLOCKCHAIN_RECONCILE_INTERVAL_MS` | `30000` | Finishes transactions a request could not settle |
+
+Both take a database lease before working, so N instances cooperate instead of racing. The
+reconciliation worker's rules — never re-sign an `UNKNOWN`, reuse a reserved nonce, bounded
+backoff — are in [`transaction-reconciliation.md`](transaction-reconciliation.md).
+
 ## Event indexing
 
 The indexer is off by default (`BLOCKCHAIN_INDEXER_INTERVAL_MS=0`). When enabled it:
@@ -164,7 +182,9 @@ The indexer is off by default (`BLOCKCHAIN_INDEXER_INTERVAL_MS=0`). When enabled
 - stores events under the unique key `(chainId, txHash, logIndex)`, so a replay is a no-op;
 - stores the hash of the last processed block and rewinds one block at a time when that
   hash is no longer canonical;
-- ignores logs it cannot decode rather than writing a guess.
+- ignores logs it cannot decode rather than writing a guess;
+- holds a lease on the cursor row for the duration of a pass, so two instances take turns
+  rather than interleaving their ranges and their rewinds.
 
 It is a projection, not a source of truth. The contract is the source of truth for claim
 state, and `GET /invoices/:id/anchor-status` reads it live.
@@ -177,9 +197,16 @@ state, and `GET /invoices/:id/anchor-status` reads it live.
 - `apps/api/test/blockchain-commitment.spec.ts` — encoding, golden vectors, ABI drift,
   configuration guards.
 - `apps/api/test/blockchain.e2e-spec.ts` — 14 tests over HTTP against a real `hardhat node`
-  and a real PostgreSQL engine (PGlite), covering anchoring, idempotency, cross-tenant
-  isolation, the full financing lifecycle, cancellation, invalid transitions, event
-  indexing, reorg rewind and OpenAPI generation.
+  and a real PostgreSQL engine, covering anchoring, idempotency, cross-tenant isolation, the
+  full financing lifecycle, cancellation, invalid transitions, event indexing, reorg rewind
+  and OpenAPI generation.
+- `apps/api/test/blockchain-recovery.spec.ts` — 7 tests that put an operation into each
+  crash state (`SUBMITTING` with no hash, `UNKNOWN` with and without a hash, spent and
+  unspent nonce) and assert the worker finishes it with exactly one transaction.
+- `apps/api/test/blockchain-hardening.spec.ts` — 19 tests for leases, concurrent claims,
+  backoff bounds and quota atomicity, with no chain involved.
+- `apps/api/test/blockchain-quota.e2e-spec.ts` — 6 HTTP tests for `429`, `Retry-After`, and
+  the routes that must not be metered.
 
 No test claims anything about Fuji beyond the RPC being reachable; see
 [`avalanche-fuji-deployment.md`](avalanche-fuji-deployment.md) for what has and has not

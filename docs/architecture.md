@@ -204,15 +204,16 @@ database's connection limit, not of code.
   have no integration, so the two checks that would need them report `UNSUPPORTED` and
   `NOT_CHECKED` on every run rather than simulating a result. See
   [invoice-verification.md](./invoice-verification.md).
-- **An automated reconciler.** Unknown chain outcomes are resolved when a client polls
-  them; there is no background sweep. See
+- **A multi-instance signer.** Nonce allocation and the indexer cursor are leased, so two
+  API instances are safe, but they still share one signer account, so chain writes are
+  serialised rather than scaled. See
   [transaction-reconciliation.md](./transaction-reconciliation.md).
-- **A multi-instance indexer.** The cursor is a single row with no lease, so two API
-  instances polling would race. Correct for one instance, insufficient for two.
 - **Financing and risk workflows.** The chain lifecycle exists; the approval workflow
   around it (`RiskAssessment`, credit decisions) does not. The four `financing-requests`
   routes move a claim, they do not approve one.
 - **Invoice status transitions.** An invoice is created `SUBMITTED` and stays there. The
   `VERIFIED` / `FINANCED` / `SETTLED` transitions belong to the financing workflow, not to
   verification, and nothing moves an invoice between them yet.
-- **Rate limiting.** See [invoice-security.md](./invoice-security.md#known-gaps).
+- **Rate limiting outside the chain surface.** Chain writes are metered per organization
+  ([blockchain-security.md](./blockchain-security.md)); invoice intake and login are not.
+  See [invoice-security.md](./invoice-security.md#known-gaps).

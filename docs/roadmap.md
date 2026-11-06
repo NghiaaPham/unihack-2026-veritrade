@@ -13,26 +13,29 @@ Phase 1  ██████████  Monorepo, health, trade slice
 Phase 2  ██████████  Prisma model, domain module skeletons
 Phase 3  ██████████  Auth, tenancy, invoice pipeline, verification
 Phase 4  █████████░  Registry, outbox, claim lifecycle   (code done, never deployed)
-Phase 4.5 ░░░░░░░░░░  Production hardening               (not started)
+Phase 4.5 ████████░░  Production hardening               (code done, not deployed)
 Phase 5  ░░░░░░░░░░  Product surface                     (not started)
 ```
 
-The gap in Phase 4 is not code. It is that the deployment half of the phase — a real
-database, a real testnet, a real reconciliation loop — has never been executed.
+Phase 4.5 closed the loop that made the Phase 4 claim defensible: real PostgreSQL instead of
+PGlite, a reconciliation worker instead of a client that has to keep polling, database-backed
+leases instead of a single-process assumption, and a per-organization quota instead of
+unlimited spend. The remaining gap is the same one Phase 4 had — a real testnet — plus the
+unauthenticated `trade` surface, which needs a decision rather than code.
 
 ## Phase 4.5 — make it trustworthy
 
 **Goal:** the system can survive a demo that is not on your laptop.
 
-| Track                                      | Why it is first                               | Blocking?            |
-| ------------------------------------------ | --------------------------------------------- | -------------------- |
-| Real PostgreSQL 17                         | every database claim is currently PGlite-only | blocks FUJI-1        |
-| Remove the unauthenticated `trade` surface | it is an open write path                      | independent          |
-| Rate limiting                              | unlimited spend and unlimited login attempts  | independent          |
-| Reconciliation worker                      | `UNKNOWN` operations never resolve themselves | blocks FUJI-1        |
-| Multi-instance safety                      | the indexer assumes one process               | blocks any scale-out |
-| Gas measurement                            | a deployment needs a budget                   | blocks FUJI-1        |
-| Fuji deployment                            | the last step, not the first                  | blocked by the above |
+| Track                                      | Why it mattered                                | Status       |
+| ------------------------------------------ | ---------------------------------------------- | ------------ |
+| Real PostgreSQL 17                         | every database claim was PGlite-only           | done         |
+| Rate limiting (chain writes)               | unlimited spend per authenticated client       | done         |
+| Reconciliation worker                      | `UNKNOWN` operations never resolved themselves | done         |
+| Multi-instance safety                      | the indexer assumed one process                | done         |
+| Gas measurement                            | a deployment needs a budget                    | done         |
+| Remove the unauthenticated `trade` surface | it is an open write path                       | **open**     |
+| Fuji deployment                            | the last step, not the first                   | **not done** |
 
 Parallelism: the PostgreSQL track, the security track (trade + rate limiting) and the gas
 measurement track touch disjoint files and can run simultaneously. The reconciliation worker

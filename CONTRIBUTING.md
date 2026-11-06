@@ -145,7 +145,7 @@ pnpm lint
 
 ```bash
 pnpm test                              # everything
-pnpm --filter @veritrade/api test      # Vitest, 13 files
+pnpm --filter @veritrade/api test      # Vitest, 16 files
 pnpm --filter @veritrade/contracts test # Hardhat, 1 file
 ```
 

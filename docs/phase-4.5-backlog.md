@@ -1,8 +1,26 @@
 # Phase 4.5 backlog
 
-Seven work items that stand between the current code and a system that can be demonstrated
+Seven work items that stood between the Phase 4 code and a system that can be demonstrated
 somewhere other than a laptop. Each is self-contained: objective, files, dependencies,
 acceptance criteria, owner role, and the commands that prove it is done.
+
+**Status as of 2026-11-06.** Five are complete, one is partly complete, and one was
+deliberately not attempted:
+
+| Task   | Scope                                  | Status                                                           |
+| ------ | -------------------------------------- | ---------------------------------------------------------------- |
+| PG-1   | Validate against real PostgreSQL 17    | **Done** — PostgreSQL 17.11, 229 tests green                     |
+| PG-2   | Migration validation and drift         | **Done** — 4 migrations applied, schema in sync                  |
+| BC-1   | Reconciliation worker                  | **Done** — 7 recovery tests against a real EVM                   |
+| BC-2   | Multi-instance safety                  | **Done** — nonce allocator + operation and cursor leases         |
+| BC-3   | Gas measurements                       | **Done** — see [current-status.md](current-status.md) §4.3       |
+| SEC-1  | Chain write rate limiting              | **Done** — quota guard, 6 HTTP tests                             |
+| SEC-0  | Remove the unauthenticated `trade` API | **Not done** — needs a product decision (delete or authenticate) |
+| FUJI-1 | Fuji deployment readiness              | **Ready, not deployed** — no key, no transaction, no address     |
+
+The task bodies below are kept as written, so the acceptance criteria still describe what
+"done" meant. Where the implementation diverged from the plan, the divergence is noted in
+the task.
 
 **These are not GitHub Issues.** Nothing has been created remotely. Copy a task into an
 issue when someone picks it up.
@@ -42,6 +60,10 @@ SEC-1  Blockchain rate limiting      (independent)
 ---
 
 ## SEC-0 — Remove the unauthenticated `trade` surface
+
+> **Status: not done.** Still the highest-severity item in the repository. It needs a
+> decision — delete the module, or authenticate it — which is a product call, not an
+> engineering one.
 
 **Priority:** highest severity in the repository · **Effort:** S
 
@@ -98,6 +120,11 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:3001/api/trade
 
 ## PG-1 — Validate against real PostgreSQL 17
 
+> **Status: done, 2026-11-06.** PostgreSQL 17.11 via `docker compose`, all four migrations
+> applied, seed run twice to prove idempotency, and the full suite run against the server
+> (`pnpm test:postgres`). Two harness bugs were found and fixed; see
+> [current-status.md](current-status.md) §4.2.
+
 **Priority:** blocks every other database claim · **Effort:** M
 
 ### Objective
@@ -152,6 +179,11 @@ Performance tuning, replication, backups. Those are production concerns beyond a
 
 ## PG-2 — Migration validation and drift detection
 
+> **Status: done, 2026-11-06.** The Phase 4.5 migration was authored with `migrate diff`
+> before any database had it, then applied to the live server. `prisma migrate status`
+> reports no drift. A CI job against a PostgreSQL service container was **not** added —
+> the workflow stays container-free, and `test:postgres` is the manual equivalent.
+
 **Priority:** high · **Effort:** M · **Depends on:** PG-1
 
 ### Objective
@@ -203,6 +235,10 @@ echo "exit 0 means no drift"
 ---
 
 ## SEC-1 — Rate limiting on chain-writing routes
+
+> **Status: done, 2026-11-06.** `BlockchainQuotaGuard` applies a fixed-window write limit
+> and an in-flight cap per organization, both database-backed. Reads are exempt. See
+> [blockchain-security.md](blockchain-security.md) §9.1.
 
 **Priority:** high · **Effort:** M · **Depends on:** nothing, but coordinate with BC-1
 
@@ -262,6 +298,10 @@ done; echo
 
 ## BC-1 — Transaction reconciliation worker
 
+> **Status: done, 2026-11-06.** `BlockchainReconciliationService`, with the lease from
+> BC-2, bounded backoff, and a hard rule that an `UNKNOWN` is never re-signed. See
+> [transaction-reconciliation.md](transaction-reconciliation.md) §6.
+
 **Priority:** high · **Effort:** L · **Depends on:** PG-1 (wants a real database)
 
 ### Objective
@@ -318,6 +358,10 @@ pnpm --filter @veritrade/api test
 
 ## BC-2 — Multi-instance safety
 
+> **Status: done, 2026-11-06.** Nonce allocation takes a row lock on
+> `blockchain_signer_nonces`; operations and the indexer cursor carry leases. Remaining
+> single-instance constraints are listed in [current-status.md](current-status.md) §7.1.
+
 **Priority:** medium · **Effort:** M · **Depends on:** BC-1 (shares files)
 
 ### Objective
@@ -369,6 +413,10 @@ pnpm --filter @veritrade/api test
 
 ## BC-3 — Gas measurements
 
+> **Status: done, 2026-11-06.** `pnpm --filter @veritrade/contracts gas:measure` prints
+> the table in [current-status.md](current-status.md) §4.3. Gas units were cross-checked
+> against a real mined Fuji transaction's fee.
+
 **Priority:** medium · **Effort:** S · **Depends on:** PG-1 is not required; a local node is enough
 
 ### Objective
@@ -413,6 +461,10 @@ pnpm --filter @veritrade/contracts exec hardhat run scripts/measure-gas.ts
 ---
 
 ## FUJI-1 — Fuji deployment readiness
+
+> **Status: ready, not deployed.** Every guard is proven, gas is known, and the RPC is
+> reachable. No deployer key exists and no transaction has been sent. Deployment still
+> requires an explicit human instruction.
 
 **Priority:** last · **Effort:** M · **Depends on:** PG-1, PG-2, BC-1, BC-2, BC-3
 

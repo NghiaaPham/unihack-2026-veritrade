@@ -153,10 +153,11 @@ How the API suite works:
 connection and surfaces as a reset during any concurrent query. The harness sets it to
 10 and the client pool to 5.
 
-The suite covers 197 tests across thirteen files: invoice API (the bulk of them), XML
+The suite covers 229 tests across sixteen files: invoice API (the bulk of them), XML
 parsing, verification checks and engine, fingerprinting, the trade API, schema
 invariants, health, domain module wiring, ESM interop, seed compatibility, the
-commitment vector, and the chain end-to-end suite.
+commitment vector, the chain end-to-end suite, the recovery suite, and the quota and
+lease tests.
 
 One test file starts a second process. `test/blockchain.e2e-spec.ts` runs
 `hardhat node` on port 8546, deploys `VeriTradeInvoiceRegistry` from the compiled
@@ -195,30 +196,34 @@ command reports "Running Solidity tests" and exits successfully having run nothi
 What was actually executed while building Phase 3 and Phase 4, on a machine with **no
 Docker, no PostgreSQL server and no Fuji deployer key**:
 
-| Check                                         | Result                                                      |
-| --------------------------------------------- | ----------------------------------------------------------- |
-| `pnpm install`                                | passed                                                      |
-| `prisma validate`                             | passed                                                      |
-| `prisma generate`                             | passed                                                      |
-| `prisma migrate diff` (both migrations)       | passed                                                      |
-| All migrations applied to PGlite in sequence  | passed — including pre-existing rows from the earlier phase |
-| `pnpm typecheck` (src + tests + seed)         | passed                                                      |
-| `pnpm lint`                                   | passed                                                      |
-| `pnpm build`                                  | passed                                                      |
-| `pnpm test` (197 tests)                       | passed                                                      |
-| `hardhat compile` (solc 0.8.28, evm cancun)   | passed                                                      |
-| `hardhat test` (33 contract tests)            | passed                                                      |
-| Contract deployed to a local Hardhat node     | passed — then the record was deleted                        |
-| `deploy:fuji` guard (no confirmation)         | refused as designed                                         |
-| `env:check` on Fuji without a key             | exited 1, printed the RPC host only                         |
-| Fuji RPC reachable (`eth_chainId`)            | passed — returned `0xa869`                                  |
-| Transaction submitted to Fuji                 | **not run** — no deployer key, and none was generated       |
-| `prisma migrate deploy` against real Postgres | **not run** — no server available                           |
+| Check                                            | Result                                                      |
+| ------------------------------------------------ | ----------------------------------------------------------- |
+| `pnpm install`                                   | passed                                                      |
+| `prisma validate`                                | passed                                                      |
+| `prisma generate`                                | passed                                                      |
+| `prisma migrate diff` (both migrations)          | passed                                                      |
+| All migrations applied to PGlite in sequence     | passed — including pre-existing rows from the earlier phase |
+| `pnpm typecheck` (src + tests + seed)            | passed                                                      |
+| `pnpm lint`                                      | passed                                                      |
+| `pnpm build`                                     | passed                                                      |
+| `pnpm test` (229 tests)                          | passed                                                      |
+| `hardhat compile` (solc 0.8.28, evm cancun)      | passed                                                      |
+| `hardhat test` (33 contract tests)               | passed                                                      |
+| Contract deployed to a local Hardhat node        | passed — then the record was deleted                        |
+| `deploy:fuji` guard (no confirmation)            | refused as designed                                         |
+| `env:check` on Fuji without a key                | exited 1, printed the RPC host only                         |
+| Fuji RPC reachable (`eth_chainId`)               | passed — returned `0xa869`                                  |
+| Transaction submitted to Fuji                    | **not run** — no deployer key, and none was generated       |
+| `prisma migrate deploy` against PostgreSQL 17.11 | passed — 4 migrations                                       |
+| `prisma db seed` against PostgreSQL 17.11        | passed, and idempotent on a second run                      |
+| Full suite against PostgreSQL 17.11              | passed — 229 tests / 16 files                               |
 
-The migrations are therefore verified against a real Postgres engine (PGlite is Postgres
-compiled to WASM, same parser, same DDL semantics) but **not** against a networked
-PostgreSQL 17 instance. Run `pnpm db:up && pnpm db:migrate` once Docker is available to
-close that gap.
+The migrations are now verified against both: PGlite (Postgres compiled to WASM, same
+parser and DDL semantics, no server) and a networked **PostgreSQL 17.11** instance via
+`docker compose`. The second run is the one that counts, and it found two harness bugs the
+first could not — see [current-status.md](current-status.md) §4.2.
+
+`pnpm --filter @veritrade/api test:postgres` reproduces it on any machine with Docker.
 
 The chain work is verified the same way: a real EVM (Hardhat's node) executed the real
 bytecode, and the API submitted real transactions to it over JSON-RPC, waited for real

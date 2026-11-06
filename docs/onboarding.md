@@ -118,14 +118,16 @@ failure surfaces on `/api/v1/health/db` as a `503`.
 
 ## 4. Database — two paths
 
-### Path A: no Docker (what this repository was built on)
+### Path A: no Docker (CI and `pnpm test`)
 
 Nothing to do. `pnpm test` runs against **PGlite**, an in-process PostgreSQL compiled to
 WASM, with the committed migrations applied at startup. You get real DDL and real
 constraints with no server.
 
-What you **cannot** do on this path: `db:migrate`, `db:seed`, `db:studio`, `db:reset`, and
-anything that needs a persistent database.
+What you **cannot** do on this path: `db:migrate`, `db:seed`, `db:studio`, `db:reset`,
+`test:postgres`, and anything that needs a persistent database. It also cannot find the class
+of problem a real server has — connection pooling, cross-connection locks — which is why
+Path B exists.
 
 ### Path B: Docker
 
@@ -135,6 +137,9 @@ pnpm db:up                  # postgres:17-alpine on :5432
 pnpm db:migrate             # prisma migrate deploy
 pnpm db:seed                # synthetic development data, idempotent
 pnpm db:studio              # browse the data (optional)
+
+# the same 229-test suite, against the real server instead of PGlite
+pnpm --filter @veritrade/api test:postgres
 ```
 
 Useful companions:
@@ -203,6 +208,15 @@ Test (33 tests against an in-process EVM, no network, no key):
 pnpm --filter @veritrade/contracts test
 ```
 
+Measure gas (needs a local node running, see below):
+
+```bash
+pnpm --filter @veritrade/contracts gas:measure
+```
+
+It deploys a registry, runs the full lifecycle and prints gas per operation, plus an
+illustrative Fuji cost from a live `eth_gasPrice` snapshot. It sends nothing to Fuji.
+
 Run a local chain and deploy to it:
 
 ```bash
@@ -269,27 +283,29 @@ pnpm format           # rewrite files
 
 ## 8. Verification matrix
 
-Observed on 2026-11-05, Node 26.13.0, pnpm 12.16.1, macOS, **no Docker**.
+Observed on 2026-11-06, Node 26.13.0, pnpm 12.16.1, macOS, Docker 29.9.2 with a
+PostgreSQL 17.11 container.
 
-| Step                     | Command                                   | Result                     |
-| ------------------------ | ----------------------------------------- | -------------------------- |
-| Frozen install           | `pnpm install --frozen-lockfile`          | pass                       |
-| Prisma schema            | `pnpm db:validate`                        | pass                       |
-| Format                   | `pnpm format:check`                       | pass                       |
-| Lint                     | `pnpm lint`                               | pass                       |
-| Typecheck                | `pnpm typecheck`                          | pass (3 packages)          |
-| Build                    | `pnpm build`                              | pass                       |
-| API tests                | `pnpm --filter @veritrade/api test`       | 197 passed / 13 files      |
-| Contract tests           | `pnpm --filter @veritrade/contracts test` | 33 passed                  |
-| Dev servers              | `pnpm dev`                                | web 200, api 200           |
-| API without DB           | `GET /api/v1/health`                      | 200 `{"status":"ok"}`      |
-| API without DB           | `GET /api/v1/health/db`                   | 503, no driver text leaked |
-| Swagger UI               | `GET /api/docs`                           | 200 `text/html`            |
-| OpenAPI                  | `GET /api/docs-json`                      | 20 paths                   |
-| Fuji RPC                 | `eth_chainId`                             | `0xa869` (43113)           |
-| Fuji deploy guard        | `deploy:fuji` without confirmation        | refused                    |
-| Fuji key check           | `env:check`                               | exit 1, "no deployer key"  |
-| `db:migrate` / `db:seed` | —                                         | **not run**, no Docker     |
+| Step                     | Command                                         | Result                     |
+| ------------------------ | ----------------------------------------------- | -------------------------- |
+| Frozen install           | `pnpm install --frozen-lockfile`                | pass                       |
+| Prisma schema            | `pnpm db:validate`                              | pass                       |
+| Format                   | `pnpm format:check`                             | pass                       |
+| Lint                     | `pnpm lint`                                     | pass                       |
+| Typecheck                | `pnpm typecheck`                                | pass (3 packages)          |
+| Build                    | `pnpm build`                                    | pass                       |
+| API tests                | `pnpm --filter @veritrade/api test`             | 229 passed / 16 files      |
+| Contract tests           | `pnpm --filter @veritrade/contracts test`       | 33 passed                  |
+| Dev servers              | `pnpm dev`                                      | web 200, api 200           |
+| API without DB           | `GET /api/v1/health`                            | 200 `{"status":"ok"}`      |
+| API without DB           | `GET /api/v1/health/db`                         | 503, no driver text leaked |
+| Swagger UI               | `GET /api/docs`                                 | 200 `text/html`            |
+| OpenAPI                  | `GET /api/docs-json`                            | 21 paths                   |
+| Fuji RPC                 | `eth_chainId`                                   | `0xa869` (43113)           |
+| Fuji deploy guard        | `deploy:fuji` without confirmation              | refused                    |
+| Fuji key check           | `env:check`                                     | exit 1, "no deployer key"  |
+| API tests, real Postgres | `pnpm --filter @veritrade/api test:postgres`    | 229 passed / 16 files      |
+| `db:migrate` / `db:seed` | `pnpm db:up && pnpm db:migrate && pnpm db:seed` | pass, PostgreSQL 17.11     |
 
 ## 9. First-day checklist
 

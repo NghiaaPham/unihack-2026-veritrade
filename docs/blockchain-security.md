@@ -144,18 +144,42 @@ submitting entity for auditability, and a per-invoice handle would make that imp
 
 ## 9. Availability and griefing
 
-| Scenario                       | Effect                                   | Mitigation                                                           |
-| ------------------------------ | ---------------------------------------- | -------------------------------------------------------------------- |
-| Registrar key compromised      | Attacker reserves arbitrary invoices     | Pause + revoke; reservations can be cancelled                        |
-| Admin key compromised          | Full control                             | Multisig + timelock in production                                    |
-| RPC provider down              | Reads fail, writes queue in `PENDING`    | Outbox survives; retry when the RPC returns                          |
-| RPC returns a wrong chain      | Deployment scripts refuse before signing | Chain id read from the node, not the config                          |
-| Gas price spike                | Transactions stall in `SUBMITTED`        | `202` + polling; no automatic re-send                                |
-| Malicious tenant spams anchors | Gas cost, no correctness impact          | Role-gated signer, per-request cost, rate limiting (not implemented) |
+| Scenario                       | Effect                                   | Mitigation                                                      |
+| ------------------------------ | ---------------------------------------- | --------------------------------------------------------------- |
+| Registrar key compromised      | Attacker reserves arbitrary invoices     | Pause + revoke; reservations can be cancelled                   |
+| Admin key compromised          | Full control                             | Multisig + timelock in production                               |
+| RPC provider down              | Reads fail, writes queue in `PENDING`    | Outbox survives; retry when the RPC returns                     |
+| RPC returns a wrong chain      | Deployment scripts refuse before signing | Chain id read from the node, not the config                     |
+| Gas price spike                | Transactions stall in `SUBMITTED`        | `202` + polling; no automatic re-send                           |
+| Malicious tenant spams anchors | Gas cost, no correctness impact          | Role-gated signer, per-org write quota and in-flight cap (§9.1) |
 
-Rate limiting is **not implemented**. A tenant with write access can create as many anchor
-operations as it has invoices. Each costs gas and each is globally visible. This is
-acceptable for a testnet demo and is called out as a gap.
+### 9.1 Chain write quotas
+
+Every route that can create a transaction is metered by `BlockchainQuotaGuard`, before the
+handler runs. Two limits, both enforced in the database so they survive a restart and apply
+across instances:
+
+| Limit                   | Default                       | Stops                                                       |
+| ----------------------- | ----------------------------- | ----------------------------------------------------------- |
+| Writes per fixed window | 60 per 60 s, per organization | A script firing hundreds of transactions a minute           |
+| Operations in flight    | 25, per organization          | Outstanding gas spend, however slowly the attacker paces it |
+
+A refusal is `429` with a `Retry-After` header and a stable code
+(`BLOCKCHAIN_RATE_LIMITED` or `BLOCKCHAIN_PENDING_LIMIT_REACHED`), and writes a
+`blockchain.write.rate_limited` audit row.
+
+Two design choices are deliberate:
+
+- **Reads are never charged.** `GET /invoices/:id/anchor-status` and
+  `GET /blockchain/transactions/:id` are how a client learns what happened to a write it
+  already paid for. Charging them would push clients towards guessing instead of polling.
+- **A rejected attempt still costs quota.** The guard runs before the handler, so a request
+  for a nonexistent invoice consumes a unit. Otherwise a caller could probe with garbage ids
+  for free and only pay on the attempts that succeed.
+
+What this does **not** cover: invoice uploads, login attempts (no lockout) and the legacy
+`trade` routes are still unmetered. Only the chain surface is bounded, because only the chain
+surface spends AVAX.
 
 ## 10. Out of scope
 

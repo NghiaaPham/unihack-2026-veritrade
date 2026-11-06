@@ -17,7 +17,8 @@
     "roles:fuji": "hardhat run scripts/init-roles.ts --network fuji",
     "verify:local": "hardhat run scripts/verify.ts --network localhost",
     "verify:fuji": "hardhat run scripts/verify.ts --network fuji",
-    "env:check": "hardhat run scripts/check-env.ts --network fuji"
+    "env:check": "hardhat run scripts/check-env.ts --network fuji",
+    "gas:measure": "hardhat run scripts/measure-gas.ts --network localhost"
   },
   "dependencies": {
     "@nomicfoundation/hardhat-viem": "3.1.0",
