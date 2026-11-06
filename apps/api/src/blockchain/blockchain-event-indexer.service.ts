@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { decodeEventLog, type Log } from 'viem';
@@ -5,7 +7,7 @@ import { decodeEventLog, type Log } from 'viem';
 import { PrismaService } from '../database/prisma.service.js';
 import { BlockchainEventType, Prisma, type ChainSyncCursor } from '../generated/prisma/client.js';
 import { AvalancheRpcService, type RpcPublicClient } from './avalanche-rpc.service.js';
-import { MAX_BLOCK_RANGE, REGISTRY_ABI } from './blockchain.constants.js';
+import { INDEXER_LEASE_MS, MAX_BLOCK_RANGE, REGISTRY_ABI } from './blockchain.constants.js';
 
 export interface IndexerResult {
   fromBlock: string | null;
@@ -13,6 +15,8 @@ export interface IndexerResult {
   indexed: number;
   skipped: number;
   reorged: boolean;
+  /** Another instance held the cursor lease, so this pass did nothing. */
+  deferred: boolean;
 }
 
 const EVENT_TYPES: Record<string, BlockchainEventType> = {
@@ -40,6 +44,7 @@ export class BlockchainEventIndexerService implements OnModuleInit, OnModuleDest
   private readonly logger = new Logger(BlockchainEventIndexerService.name);
   private readonly intervalMs: number;
   private readonly confirmations: number;
+  private readonly leaseOwner = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
@@ -92,17 +97,16 @@ export class BlockchainEventIndexerService implements OnModuleInit, OnModuleDest
   /**
    * One bounded pass. Safe to call from anywhere — the test suite uses it
    * directly instead of waiting for a timer.
+   *
+   * The cursor is leased for the duration. Without that, two instances read the
+   * same `lastProcessedBlock`, index the same range and then race to write the
+   * cursor; worse, one instance's reorg rewind would delete events the other
+   * had just written, and the deletion is indistinguishable from a real reorg.
    */
   async syncOnce(): Promise<IndexerResult> {
     const contractAddress = this.rpc.requireContractAddress();
     const chainId = this.rpc.chainId;
     const publicClient = this.rpc.publicClient();
-
-    const cursor = await this.prisma.chainSyncCursor.upsert({
-      where: { chainId_contractAddress: { chainId, contractAddress } },
-      create: { chainId, contractAddress, lastProcessedBlock: 0n },
-      update: {},
-    });
 
     const empty: IndexerResult = {
       fromBlock: null,
@@ -110,55 +114,105 @@ export class BlockchainEventIndexerService implements OnModuleInit, OnModuleDest
       indexed: 0,
       skipped: 0,
       reorged: false,
+      deferred: false,
     };
 
-    if (await this.rewindIfReorged(cursor, publicClient)) {
-      return { ...empty, reorged: true };
-    }
-
-    const latest = BigInt(await publicClient.getBlockNumber());
-    const safeLatest = latest - BigInt(Math.max(0, this.confirmations - 1));
-    const from = cursor.lastProcessedBlock + 1n;
-
-    if (from > safeLatest) return empty;
-
-    const to =
-      from + BigInt(MAX_BLOCK_RANGE - 1) < safeLatest
-        ? from + BigInt(MAX_BLOCK_RANGE - 1)
-        : safeLatest;
-
-    const logs = await publicClient.getLogs({
-      address: contractAddress,
-      fromBlock: from,
-      toBlock: to,
-    });
-
-    const rows = logs.flatMap((log) => this.toRow(log, chainId, contractAddress));
-
-    let indexed = 0;
-    if (rows.length > 0) {
-      // The unique index turns a replay into a no-op instead of an error, and
-      // the returned count is what was actually written — not what was seen.
-      const written = await this.prisma.blockchainEvent.createMany({
-        data: rows,
-        skipDuplicates: true,
-      });
-      indexed = written.count;
-    }
-
-    const lastBlock = await publicClient.getBlock({ blockNumber: to });
-    await this.prisma.chainSyncCursor.update({
+    const cursor = await this.prisma.chainSyncCursor.upsert({
       where: { chainId_contractAddress: { chainId, contractAddress } },
-      data: { lastProcessedBlock: to, lastProcessedBlockHash: lastBlock.hash },
+      create: { chainId, contractAddress, lastProcessedBlock: 0n },
+      update: {},
     });
 
-    return {
-      fromBlock: from.toString(),
-      toBlock: to.toString(),
-      indexed,
-      skipped: logs.length - indexed,
-      reorged: false,
-    };
+    if (!(await this.acquireLease(chainId, contractAddress))) {
+      return { ...empty, deferred: true };
+    }
+
+    try {
+      if (await this.rewindIfReorged(cursor, publicClient)) {
+        return { ...empty, reorged: true };
+      }
+
+      const latest = BigInt(await publicClient.getBlockNumber());
+      const safeLatest = latest - BigInt(Math.max(0, this.confirmations - 1));
+      const from = cursor.lastProcessedBlock + 1n;
+
+      if (from > safeLatest) return empty;
+
+      const to =
+        from + BigInt(MAX_BLOCK_RANGE - 1) < safeLatest
+          ? from + BigInt(MAX_BLOCK_RANGE - 1)
+          : safeLatest;
+
+      const logs = await publicClient.getLogs({
+        address: contractAddress,
+        fromBlock: from,
+        toBlock: to,
+      });
+
+      const rows = logs.flatMap((log) => this.toRow(log, chainId, contractAddress));
+
+      let indexed = 0;
+      if (rows.length > 0) {
+        // The unique index turns a replay into a no-op instead of an error, and
+        // the returned count is what was actually written — not what was seen.
+        const written = await this.prisma.blockchainEvent.createMany({
+          data: rows,
+          skipDuplicates: true,
+        });
+        indexed = written.count;
+      }
+
+      const lastBlock = await publicClient.getBlock({ blockNumber: to });
+      await this.prisma.chainSyncCursor.update({
+        where: { chainId_contractAddress: { chainId, contractAddress } },
+        data: { lastProcessedBlock: to, lastProcessedBlockHash: lastBlock.hash },
+      });
+
+      return {
+        fromBlock: from.toString(),
+        toBlock: to.toString(),
+        indexed,
+        skipped: logs.length - indexed,
+        reorged: false,
+        deferred: false,
+      };
+    } finally {
+      await this.releaseLease(chainId, contractAddress);
+    }
+  }
+
+  /**
+   * Takes the cursor for this instance, or reports that someone else has it.
+   *
+   * A conditional UPDATE is the whole mechanism: the row is the lock, the
+   * condition makes exactly one contender win, and an expired lease lets a
+   * crashed instance's work be taken over without an operator.
+   */
+  private async acquireLease(chainId: number, contractAddress: `0x${string}`): Promise<boolean> {
+    const now = new Date();
+
+    const claimed = await this.prisma.chainSyncCursor.updateMany({
+      where: {
+        chainId,
+        contractAddress,
+        OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lt: now } }],
+      },
+      data: {
+        leaseOwner: this.leaseOwner,
+        leaseExpiresAt: new Date(now.getTime() + INDEXER_LEASE_MS),
+      },
+    });
+
+    return claimed.count === 1;
+  }
+
+  private async releaseLease(chainId: number, contractAddress: `0x${string}`): Promise<void> {
+    await this.prisma.chainSyncCursor
+      .updateMany({
+        where: { chainId, contractAddress, leaseOwner: this.leaseOwner },
+        data: { leaseOwner: null, leaseExpiresAt: null },
+      })
+      .catch(() => undefined);
   }
 
   /**
