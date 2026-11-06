@@ -224,12 +224,13 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  memberships       OrganizationMembership[]
-  invoices          Invoice[]
-  financingRequests FinancingRequest[]
-  blockchainRecords BlockchainRecord[]
+  memberships          OrganizationMembership[]
+  invoices             Invoice[]
+  financingRequests    FinancingRequest[]
+  blockchainRecords    BlockchainRecord[]
   blockchainOperations BlockchainOperation[]
-  auditLogs         AuditLog[]
+  blockchainRateLimits BlockchainRateLimit[]
+  auditLogs            AuditLog[]
 
   @@map("organizations")
 }
@@ -239,8 +240,8 @@ model Organization {
 model OrganizationMembership {
   id String @id @default(uuid(7)) @db.Uuid
 
-  organizationId String       @map("organization_id") @db.Uuid
-  userId         String       @map("user_id") @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  userId         String         @map("user_id") @db.Uuid
   role           MembershipRole @default(MEMBER)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -293,8 +294,8 @@ model Invoice {
   /// never part of the identity, because providers translate it differently.
   invoiceTypeName String? @map("invoice_type_name") @db.VarChar(160)
 
-  sellerName String  @map("seller_name") @db.VarChar(255)
-  buyerName  String  @map("buyer_name") @db.VarChar(255)
+  sellerName String @map("seller_name") @db.VarChar(255)
+  buyerName  String @map("buyer_name") @db.VarChar(255)
 
   /// Same precision as every other monetary column. Rounding an invoice down
   /// to cents at the storage layer would lose information the verifier needs.
@@ -303,9 +304,9 @@ model Invoice {
   /// Sum of the line items before tax. Null when the document omits it.
   subtotalAmount Decimal? @map("subtotal_amount") @db.Decimal(38, 18)
   /// Total tax. Null when the document omits it.
-  taxAmount Decimal? @map("tax_amount") @db.Decimal(38, 18)
+  taxAmount      Decimal? @map("tax_amount") @db.Decimal(38, 18)
 
-  issueDate DateTime @map("issue_date") @db.Date
+  issueDate DateTime  @map("issue_date") @db.Date
   /// Nullable because an e-invoice states its issue date but not its payment
   /// terms: TT78 has `NLap` and nothing equivalent to a due date. Deriving one
   /// (issue + 30 days) would write an invented date into a financial record,
@@ -327,12 +328,12 @@ model Invoice {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization      Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  uploadedBy        User                   @relation("InvoiceUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
-  document          InvoiceDocument?
-  verifications     InvoiceVerification[]
-  financingRequests FinancingRequest[]
-  blockchainRecords BlockchainRecord[]
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  uploadedBy           User                  @relation("InvoiceUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  document             InvoiceDocument?
+  verifications        InvoiceVerification[]
+  financingRequests    FinancingRequest[]
+  blockchainRecords    BlockchainRecord[]
   blockchainOperations BlockchainOperation[]
 
   /// Duplicate detection, scoped to the tenant: two organisations may
@@ -357,9 +358,9 @@ model InvoiceDocument {
   /// duplicate, not a new revision.
   invoiceId String @unique @map("invoice_id") @db.Uuid
 
-  filename   String @db.VarChar(255)
-  mimeType   String @map("mime_type") @db.VarChar(128)
-  byteSize   Int    @map("byte_size")
+  filename String @db.VarChar(255)
+  mimeType String @map("mime_type") @db.VarChar(128)
+  byteSize Int    @map("byte_size")
 
   /// SHA-256 of the raw bytes. Used as the storage key, so identical uploads
   /// address the same blob and the write is idempotent.
@@ -370,7 +371,7 @@ model InvoiceDocument {
   storageKey String @map("storage_key") @db.VarChar(512)
 
   /// Parser profile that accepted the document, e.g. `TT78_2021`.
-  format String @db.VarChar(32)
+  format        String @db.VarChar(32)
   /// Version of the parser that produced the stored fields.
   parserVersion String @map("parser_version") @db.VarChar(16)
 
@@ -429,7 +430,7 @@ model VerificationCheck {
 
   status  VerificationCheckStatus
   /// Short human-readable explanation. Never contains document contents.
-  message String @db.VarChar(500)
+  message String                  @db.VarChar(500)
 
   /// Structured evidence for the check (counts, expected vs actual totals,
   /// algorithm names). Must not contain PII — see docs/invoice-security.md.
@@ -485,11 +486,11 @@ model FinancingRequest {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  invoice           Invoice            @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
-  requestedBy       User               @relation("FinancingRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
-  riskAssessments   RiskAssessment[]
-  blockchainRecords BlockchainRecord[]
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice              Invoice               @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  requestedBy          User                  @relation("FinancingRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  riskAssessments      RiskAssessment[]
+  blockchainRecords    BlockchainRecord[]
   blockchainOperations BlockchainOperation[]
 
   @@unique([invoiceId, activeKey])
@@ -552,19 +553,19 @@ model BlockchainRecord {
   /// Keccak-256 of the canonical off-chain payload (0x-prefixed, 66 chars).
   payloadHash String @map("payload_hash") @db.Char(66)
 
-  invoiceId           String? @map("invoice_id") @db.Uuid
-  verificationId      String? @map("verification_id") @db.Uuid
-  financingRequestId  String? @map("financing_request_id") @db.Uuid
-  riskAssessmentId    String? @map("risk_assessment_id") @db.Uuid
+  invoiceId          String? @map("invoice_id") @db.Uuid
+  verificationId     String? @map("verification_id") @db.Uuid
+  financingRequestId String? @map("financing_request_id") @db.Uuid
+  riskAssessmentId   String? @map("risk_assessment_id") @db.Uuid
 
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz(3)
 
-  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  invoice          Invoice?            @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  organization     Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice          Invoice?             @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
   verification     InvoiceVerification? @relation(fields: [verificationId], references: [id], onDelete: Restrict)
-  financingRequest FinancingRequest?   @relation(fields: [financingRequestId], references: [id], onDelete: Restrict)
-  riskAssessment   RiskAssessment?     @relation(fields: [riskAssessmentId], references: [id], onDelete: Restrict)
+  financingRequest FinancingRequest?    @relation(fields: [financingRequestId], references: [id], onDelete: Restrict)
+  riskAssessment   RiskAssessment?      @relation(fields: [riskAssessmentId], references: [id], onDelete: Restrict)
 
   /// A transaction hash is only unique within a chain.
   @@unique([chainId, txHash])
@@ -623,16 +624,65 @@ model AuditLog {
 /// Infrastructure, not domain: it records how far on-chain events have been
 /// consumed so a restart or replay does not double-process them.
 model ChainSyncCursor {
-  chainId         Int      @map("chain_id")
-  contractAddress String   @map("contract_address") @db.VarChar(42)
-  lastProcessedBlock BigInt @map("last_processed_block") @default(0)
+  chainId                Int     @map("chain_id")
+  contractAddress        String  @map("contract_address") @db.VarChar(42)
+  lastProcessedBlock     BigInt  @default(0) @map("last_processed_block")
   /// Hash of the block at `lastProcessedBlock`. Without it a reorg is
   /// undetectable: the number stays valid while the contents change.
   lastProcessedBlockHash String? @map("last_processed_block_hash") @db.Char(66)
-  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  /// Indexer ownership, for the same reason operations carry one: two API
+  /// instances polling the same cursor would interleave their block ranges and
+  /// their reorg rewinds, and the second instance's writes would silently undo
+  /// the first one's progress.
+  leaseOwner     String?   @map("lease_owner") @db.VarChar(80)
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(3)
+
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
 
   @@id([chainId, contractAddress])
   @@map("chain_sync_cursor")
+}
+
+/// Fixed-window request counter, one row per organization per window.
+///
+/// Kept in the database rather than in process memory because a quota that
+/// resets on deploy and is per-instance is not a quota. The window key is
+/// quantised from the clock, so an increment is a single atomic upsert and two
+/// instances racing on the same window still produce the true total.
+///
+/// Rows are small and disposable; nothing reads them after the window closes.
+model BlockchainRateLimit {
+  organizationId String   @map("organization_id") @db.Uuid
+  /// Start of the fixed window, truncated to the window size.
+  windowStart    DateTime @map("window_start") @db.Timestamptz(3)
+  count          Int      @default(0)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, windowStart])
+  @@map("blockchain_rate_limits")
+}
+
+/// Per-signer nonce high-water mark.
+///
+/// The node's `pending` count is not enough to allocate a nonce: two instances
+/// asking at the same moment get the same answer and sign two different
+/// transactions with one nonce, which silently replaces one with the other.
+/// This row is the serialisation point — the allocator takes a row lock, reads
+/// `max(node pending, nextNonce)`, and writes the successor before releasing.
+///
+/// Not tenant data: it is keyed by chain and signer address.
+model BlockchainSignerNonce {
+  chainId   Int      @map("chain_id")
+  address   String   @map("address") @db.Char(42)
+  /// The next nonce this system has not yet handed out.
+  nextNonce Int      @map("next_nonce")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@id([chainId, address])
+  @@map("blockchain_signer_nonces")
 }
 
 /// Durable outbox for every chain action the backend intends to perform.
@@ -700,12 +750,21 @@ model BlockchainOperation {
   submittedAt DateTime? @map("submitted_at") @db.Timestamptz(3)
   confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz(3)
 
+  /// Which worker currently owns this operation, and until when.
+  ///
+  /// A lease rather than an in-process lock, because two API instances share
+  /// one database and neither can see the other's memory. The claim is a
+  /// conditional UPDATE, so exactly one contender wins; a worker that dies
+  /// mid-pass leaves an expired lease that the next pass can take over.
+  leaseOwner     String?   @map("lease_owner") @db.VarChar(80)
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  invoice          Invoice?          @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
-  financingRequest FinancingRequest? @relation(fields: [financingRequestId], references: [id], onDelete: Restrict)
+  organization     Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invoice          Invoice?                      @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  financingRequest FinancingRequest?             @relation(fields: [financingRequestId], references: [id], onDelete: Restrict)
   receipt          BlockchainTransactionReceipt?
 
   @@index([organizationId, createdAt(sort: Desc)])
@@ -773,12 +832,12 @@ model BlockchainEvent {
   eventType BlockchainEventType @map("event_type")
 
   /// Registry commitment the event is about (0x + 64 hex).
-  commitment String @db.Char(66)
-  entityId   String? @map("entity_id") @db.Char(66)
+  commitment   String  @db.Char(66)
+  entityId     String? @map("entity_id") @db.Char(66)
   financingRef String? @map("financing_ref") @db.Char(66)
   /// The address that triggered the transition (registrar, financier, closer).
-  actor      String @db.Char(42)
-  generation Int?
+  actor        String  @db.Char(42)
+  generation   Int?
 
   /// Decoded event arguments. Contains only commitments and addresses; no
   /// invoice content is ever emitted by the contract.
