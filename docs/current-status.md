@@ -287,7 +287,7 @@ These are the parts that are still single-instance by design or by omission:
 | `blockchain-registry` and `blockchain` both exist               | the Phase 2 seam is still asserted by a test                       | two similar names for different jobs                                                                                                                                                                   |
 | Verification status `PASSED` unreachable                        | the tax-authority check has no integration                         | anchoring depends on `PARTIAL`, which reads oddly                                                                                                                                                      |
 | Seed data is synthetic only                                     | no real documents available                                        | demos show invented invoices                                                                                                                                                                           |
-| Seed writes a fake `chainId: 43113` `blockchain_records` row    | `prisma/seed.ts` fabricates a Fuji confirmation with `0x0000…0000` | if the API is later pointed at real Fuji, this row reads as "confirmed on Fuji" for an invoice that was never anchored; delete it (or gate it) before any Fuji wiring. Not a chain reset — a seed bug. |
+| Seed used to write a fake `chainId: 43113` `blockchain_records` row | **Resolved.** `prisma/seed.ts` no longer writes any `BlockchainRecord`; the fabricated Fuji row was removed in `3bf26ae` and the development database was cleaned (`docs/dev-db-cleanup-plan.md`). A re-seed writes zero confirmations. | the hazard was a seed bug; it is gone, but the runbook still lists the seed row as a pre-Fuji gate for anyone re-cloning |
 | Docs are lowercase kebab-case                                   | matches 13 pre-existing files                                      | the phase brief asked for uppercase names; see [ADR-014](decisions.md#adr-014--documentation-filenames-stay-lowercase-kebab-case)                                                                      |
 
 ## 8. Fuji deployment status
@@ -306,12 +306,14 @@ These are the parts that are still single-instance by design or by omission:
 `pnpm --filter @veritrade/contracts env:check` currently exits 1 with
 _"RPC reachable, but no deployer key"_. That is the correct state.
 
-**Do not confuse the above with the database.** `prisma/seed.ts` writes a fabricated
+**Do not confuse the above with the database.** The seed formerly wrote a fabricated
 `blockchain_records` row at `chainId: 43113` with `contractAddress 0x0000…0000` and
-`txHash 0xabab…`. It exists only in the API's Postgres, is not on any chain, and must be
-removed before the API is pointed at a real Fuji registry — otherwise an invoice reports as
-"confirmed on Fuji" though it was never anchored. The contract deploy script is unaffected:
-it reads `packages/contracts/deployments/43113.json`, which does not exist yet.
+`txHash 0xabab…`. That row was never on any chain and would have made an invoice report as
+"confirmed on Fuji" though it was never anchored. It has been **removed**: `prisma/seed.ts`
+now writes zero `BlockchainRecord` rows, the development database has been cleaned (see
+`docs/dev-db-cleanup-plan.md`), and `seed-safety.spec.ts` asserts the seed cannot recreate
+a fabricated confirmation. The contract deploy script is unaffected: it reads
+`packages/contracts/deployments/43113.json`, which does not exist yet.
 
 ## 9. Next recommended tasks
 
