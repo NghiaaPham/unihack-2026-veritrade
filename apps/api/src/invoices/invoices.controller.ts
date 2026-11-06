@@ -33,6 +33,7 @@ import type {
   BlockchainOperationResponse,
 } from '../blockchain/blockchain.presenter.js';
 import { presentOperation } from '../blockchain/blockchain.presenter.js';
+import { BlockchainQuotaGuard } from '../blockchain/blockchain-quota.guard.js';
 import { InvoiceAnchorService } from '../blockchain/invoice-anchor.service.js';
 import { applyOperationStatus } from '../blockchain/operation-status.js';
 import { CreateInvoiceDto, UploadInvoiceDto } from './dto/create-invoice.dto.js';
@@ -189,6 +190,7 @@ export class InvoicesController {
 
   @Post(':id/anchor')
   @Roles(...WRITE_ROLES)
+  @UseGuards(BlockchainQuotaGuard)
   @ApiParam({ name: 'id', description: 'Invoice id (UUID)' })
   @ApiOperation({
     summary: 'Anchor the invoice in the on-chain registry',
@@ -202,6 +204,10 @@ export class InvoicesController {
   @ApiResponse({ status: 200, description: 'Confirmed on chain' })
   @ApiResponse({ status: 202, description: 'Accepted; transaction pending or outcome unknown' })
   @ApiResponse({ status: 409, description: 'INVOICE_NOT_VERIFIED or BLOCKCHAIN_OPERATION_FAILED' })
+  @ApiResponse({
+    status: 429,
+    description: 'BLOCKCHAIN_RATE_LIMITED or BLOCKCHAIN_PENDING_LIMIT_REACHED; see Retry-After',
+  })
   @ApiResponse({
     status: 503,
     description: 'BLOCKCHAIN_NOT_CONFIGURED or BLOCKCHAIN_SIGNER_NOT_CONFIGURED',

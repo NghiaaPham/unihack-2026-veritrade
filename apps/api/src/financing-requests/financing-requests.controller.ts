@@ -8,6 +8,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import type { FinancingClaimResponse } from '../blockchain/blockchain.presenter.js';
+import { BlockchainQuotaGuard } from '../blockchain/blockchain-quota.guard.js';
 import { FinancingClaimService } from '../blockchain/financing-claim.service.js';
 import { applyOperationStatus } from '../blockchain/operation-status.js';
 
@@ -21,6 +22,10 @@ const ERROR_RESPONSES = {
     description: "No financing request with this id in the caller's organization",
   },
   conflict: { status: 409, description: 'INVALID_FINANCING_STATE or a failed chain operation' },
+  rateLimited: {
+    status: 429,
+    description: 'BLOCKCHAIN_RATE_LIMITED or BLOCKCHAIN_PENDING_LIMIT_REACHED; see Retry-After',
+  },
 } as const;
 
 /**
@@ -33,10 +38,13 @@ const ERROR_RESPONSES = {
  * Authorization is the same tenant context as everywhere else: the request id
  * is looked up *with* the organization id, so a caller cannot act on another
  * tenant's financing request by guessing a UUID.
+ *
+ * Every route here can create a transaction, so every route is metered by
+ * `BlockchainQuotaGuard`. There is no read route on this controller to exempt.
  */
 @ApiTags('financing-requests')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, BlockchainQuotaGuard)
 @Controller('v1/financing-requests')
 export class FinancingRequestsController {
   constructor(private readonly claims: FinancingClaimService) {}
@@ -57,6 +65,7 @@ export class FinancingRequestsController {
   @ApiResponse({ status: 401, description: ERROR_RESPONSES.unauthorized.description })
   @ApiResponse({ status: 404, description: ERROR_RESPONSES.notFound.description })
   @ApiResponse({ status: 409, description: ERROR_RESPONSES.conflict.description })
+  @ApiResponse({ status: 429, description: ERROR_RESPONSES.rateLimited.description })
   async reserve(
     @CurrentAuth() auth: AuthContext,
     @Param('id') id: string,
@@ -83,6 +92,7 @@ export class FinancingRequestsController {
   @ApiResponse({ status: 401, description: ERROR_RESPONSES.unauthorized.description })
   @ApiResponse({ status: 404, description: ERROR_RESPONSES.notFound.description })
   @ApiResponse({ status: 409, description: ERROR_RESPONSES.conflict.description })
+  @ApiResponse({ status: 429, description: ERROR_RESPONSES.rateLimited.description })
   async declareFinanced(
     @CurrentAuth() auth: AuthContext,
     @Param('id') id: string,
@@ -106,6 +116,7 @@ export class FinancingRequestsController {
   @ApiResponse({ status: 401, description: ERROR_RESPONSES.unauthorized.description })
   @ApiResponse({ status: 404, description: ERROR_RESPONSES.notFound.description })
   @ApiResponse({ status: 409, description: ERROR_RESPONSES.conflict.description })
+  @ApiResponse({ status: 429, description: ERROR_RESPONSES.rateLimited.description })
   async close(
     @CurrentAuth() auth: AuthContext,
     @Param('id') id: string,
@@ -131,6 +142,7 @@ export class FinancingRequestsController {
   @ApiResponse({ status: 401, description: ERROR_RESPONSES.unauthorized.description })
   @ApiResponse({ status: 404, description: ERROR_RESPONSES.notFound.description })
   @ApiResponse({ status: 409, description: ERROR_RESPONSES.conflict.description })
+  @ApiResponse({ status: 429, description: ERROR_RESPONSES.rateLimited.description })
   async cancelReservation(
     @CurrentAuth() auth: AuthContext,
     @Param('id') id: string,

@@ -21,7 +21,8 @@
     "db:migrate:dev": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "db:seed": "prisma db seed",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "test:postgres": "node scripts/test-postgres.mjs"
   },
   "dependencies": {
     "@nestjs/common": "12.3.3",
