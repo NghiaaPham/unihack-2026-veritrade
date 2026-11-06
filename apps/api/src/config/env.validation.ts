@@ -22,6 +22,27 @@ const DEFAULT_BLOCKCHAIN_CONFIRMATIONS = 1;
 const DEFAULT_INDEXER_INTERVAL_MS = 0;
 
 /**
+ * Reconciliation defaults.
+ *
+ * The worker is on by default — an operation that nobody sweeps is exactly the
+ * gap this phase closes — but 30s keeps a quiet deployment from doing anything
+ * at all, because the query returns no rows.
+ */
+const DEFAULT_RECONCILE_INTERVAL_MS = 30_000;
+
+/**
+ * Write quota defaults.
+ *
+ * 60 writes a minute is far above anything a demo or a single tenant does and
+ * far below what it takes to drain a testnet faucet. The pending cap is the
+ * more important number: it bounds *concurrent* spend regardless of how slowly
+ * an attacker paces their requests.
+ */
+const DEFAULT_BLOCKCHAIN_WRITE_LIMIT = 60;
+const DEFAULT_WRITE_WINDOW_SECONDS = 60;
+const DEFAULT_MAX_PENDING_OPERATIONS = 25;
+
+/**
  * Chains this API may talk to. Fuji is the target; the local Hardhat chain is
  * allowed so the whole pipeline can be exercised without a testnet key.
  */
@@ -40,6 +61,10 @@ export interface Environment {
   AVALANCHE_DEPLOYER_PRIVATE_KEY: string | undefined;
   BLOCKCHAIN_CONFIRMATIONS: number;
   BLOCKCHAIN_INDEXER_INTERVAL_MS: number;
+  BLOCKCHAIN_RECONCILE_INTERVAL_MS: number;
+  BLOCKCHAIN_WRITE_LIMIT: number;
+  BLOCKCHAIN_WRITE_WINDOW_SECONDS: number;
+  BLOCKCHAIN_MAX_PENDING_OPERATIONS: number;
   JWT_SECRET: string;
   JWT_EXPIRES_IN_SECONDS: number;
   AUTH_ALLOW_REGISTRATION: boolean;
@@ -136,7 +161,10 @@ export function validateEnvironment(raw: Record<string, unknown>): Environment {
     errors,
   );
 
-  const avalancheChainId = Number(raw.AVALANCHE_CHAIN_ID ?? DEFAULT_AVALANCHE_CHAIN_ID);
+  const avalancheChainIdRaw = raw.AVALANCHE_CHAIN_ID;
+  const avalancheChainIdProvided =
+    avalancheChainIdRaw !== undefined && String(avalancheChainIdRaw).trim().length > 0;
+  const avalancheChainId = Number(avalancheChainIdRaw ?? DEFAULT_AVALANCHE_CHAIN_ID);
   if (!Number.isInteger(avalancheChainId) || avalancheChainId < 1) {
     errors.push('AVALANCHE_CHAIN_ID must be a positive integer');
   } else if (
@@ -147,6 +175,21 @@ export function validateEnvironment(raw: Record<string, unknown>): Environment {
     // at a chain the tooling never sees.
     errors.push(
       `AVALANCHE_CHAIN_ID must be one of ${SUPPORTED_CHAIN_IDS.join(', ')} (received ${avalancheChainId})`,
+    );
+  }
+
+  // A present deployer key means the API can sign and broadcast transactions.
+  // On such a "signing-capable" deployment the chain id must be set explicitly
+  // rather than falling back to the 43113 default, so local development can
+  // never silently target Fuji just because someone added a key without
+  // thinking about the network. The key is validated for shape further down.
+  const hasSigningKey =
+    typeof raw.AVALANCHE_DEPLOYER_PRIVATE_KEY === 'string' &&
+    raw.AVALANCHE_DEPLOYER_PRIVATE_KEY.trim().length > 0;
+
+  if (hasSigningKey && !avalancheChainIdProvided) {
+    errors.push(
+      'AVALANCHE_CHAIN_ID must be set explicitly when AVALANCHE_DEPLOYER_PRIVATE_KEY is present (it must not fall back to the 43113 default on a signing-capable deployment)',
     );
   }
 
@@ -211,6 +254,44 @@ export function validateEnvironment(raw: Record<string, unknown>): Environment {
     errors.push('BLOCKCHAIN_INDEXER_INTERVAL_MS must be an integer between 0 and 3600000');
   }
 
+  const reconcileIntervalMs = Number(
+    raw.BLOCKCHAIN_RECONCILE_INTERVAL_MS ?? DEFAULT_RECONCILE_INTERVAL_MS,
+  );
+  if (
+    !Number.isInteger(reconcileIntervalMs) ||
+    reconcileIntervalMs < 0 ||
+    reconcileIntervalMs > 3_600_000
+  ) {
+    errors.push('BLOCKCHAIN_RECONCILE_INTERVAL_MS must be an integer between 0 and 3600000');
+  }
+
+  const writeLimit = Number(raw.BLOCKCHAIN_WRITE_LIMIT ?? DEFAULT_BLOCKCHAIN_WRITE_LIMIT);
+  if (!Number.isInteger(writeLimit) || writeLimit < 1 || writeLimit > 100_000) {
+    errors.push('BLOCKCHAIN_WRITE_LIMIT must be an integer between 1 and 100000');
+  }
+
+  const writeWindowSeconds = Number(
+    raw.BLOCKCHAIN_WRITE_WINDOW_SECONDS ?? DEFAULT_WRITE_WINDOW_SECONDS,
+  );
+  if (
+    !Number.isInteger(writeWindowSeconds) ||
+    writeWindowSeconds < 1 ||
+    writeWindowSeconds > 86_400
+  ) {
+    errors.push('BLOCKCHAIN_WRITE_WINDOW_SECONDS must be an integer between 1 and 86400');
+  }
+
+  const maxPendingOperations = Number(
+    raw.BLOCKCHAIN_MAX_PENDING_OPERATIONS ?? DEFAULT_MAX_PENDING_OPERATIONS,
+  );
+  if (
+    !Number.isInteger(maxPendingOperations) ||
+    maxPendingOperations < 1 ||
+    maxPendingOperations > 10_000
+  ) {
+    errors.push('BLOCKCHAIN_MAX_PENDING_OPERATIONS must be an integer between 1 and 10000');
+  }
+
   const jwtSecret = requireString(raw, 'JWT_SECRET', errors);
 
   if (jwtSecret.length > 0 && jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
@@ -259,6 +340,10 @@ export function validateEnvironment(raw: Record<string, unknown>): Environment {
     AVALANCHE_DEPLOYER_PRIVATE_KEY: deployerPrivateKeyRaw,
     BLOCKCHAIN_CONFIRMATIONS: blockchainConfirmations,
     BLOCKCHAIN_INDEXER_INTERVAL_MS: indexerIntervalMs,
+    BLOCKCHAIN_RECONCILE_INTERVAL_MS: reconcileIntervalMs,
+    BLOCKCHAIN_WRITE_LIMIT: writeLimit,
+    BLOCKCHAIN_WRITE_WINDOW_SECONDS: writeWindowSeconds,
+    BLOCKCHAIN_MAX_PENDING_OPERATIONS: maxPendingOperations,
     JWT_SECRET: jwtSecret,
     JWT_EXPIRES_IN_SECONDS: jwtExpiresInSeconds,
     AUTH_ALLOW_REGISTRATION: authAllowRegistration,
