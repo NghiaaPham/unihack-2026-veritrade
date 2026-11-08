@@ -85,7 +85,7 @@ apps/api/
   src/trade/                 Phase 1 legacy, unauthenticated, kept for regression
   prisma/schema.prisma       18 models
   prisma/migrations/         4 migrations, committed SQL
-  test/                      16 Vitest files
+  test/                      19 Vitest files
 apps/web/src/app/            layout, page, api/health route
 packages/contracts/
   contracts/VeriTradeInvoiceRegistry.sol   the registry (Phase 4)
@@ -218,6 +218,7 @@ A task is done when **all** of these are true:
 | [`docs/architecture.md`](docs/architecture.md)                             | Touching module boundaries or the request path |
 | [`docs/decisions.md`](docs/decisions.md)                                   | You are about to change a past decision        |
 | [`docs/roadmap.md`](docs/roadmap.md)                                       | Choosing what to work on next                  |
+| [`docs/master-plan.md`](docs/master-plan.md)                               | Planning work against the UniHack deadline     |
 | [`docs/phase-4.5-backlog.md`](docs/phase-4.5-backlog.md)                   | Picking up Phase 4.5 work                      |
 | [`docs/database-design.md`](docs/database-design.md)                       | Changing the schema                            |
 | [`docs/invoice-processing.md`](docs/invoice-processing.md)                 | Parsing, normalising or storing documents      |
