@@ -85,7 +85,7 @@ apps/api/
   src/trade/                 Phase 1 legacy, unauthenticated, kept for regression
   prisma/schema.prisma       18 models
   prisma/migrations/         4 migrations, committed SQL
-  test/                      16 Vitest files
+  test/                      19 Vitest files
 apps/web/src/app/            layout, page, api/health route
 packages/contracts/
   contracts/VeriTradeInvoiceRegistry.sol   the registry (Phase 4)
