@@ -32,7 +32,8 @@ The cost: Prisma 7's `prisma-client` generator emits TypeScript into
 
 ## ADR-002 — Keep the Phase 1 `trade` module
 
-**Status:** accepted · **Date:** 2026-11-05
+**Status:** superseded on 2026-11-08 (SEC-0) — the HTTP module was deleted; the Prisma
+`Trade` model, its migration and the seed row remain · **Date:** 2026-11-05
 
 **Context.** `trade` predates the domain model, is unauthenticated, and is not part of the
 product. Deleting it during the ORM migration would have been tidy.
