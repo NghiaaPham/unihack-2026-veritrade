@@ -20,8 +20,8 @@ Phase 5  ░░░░░░░░░░  Product surface                     (no
 Phase 4.5 closed the loop that made the Phase 4 claim defensible: real PostgreSQL instead of
 PGlite, a reconciliation worker instead of a client that has to keep polling, database-backed
 leases instead of a single-process assumption, and a per-organization quota instead of
-unlimited spend. The remaining gap is the same one Phase 4 had — a real testnet — plus the
-unauthenticated `trade` surface, which needs a decision rather than code.
+unlimited spend. The remaining gap is the same one Phase 4 had — a real testnet. The
+unauthenticated `trade` surface was deleted on 2026-11-08 (SEC-0).
 
 ## Phase 4.5 — make it trustworthy
 
@@ -34,10 +34,10 @@ unauthenticated `trade` surface, which needs a decision rather than code.
 | Reconciliation worker                      | `UNKNOWN` operations never resolved themselves | done         |
 | Multi-instance safety                      | the indexer assumed one process                | done         |
 | Gas measurement                            | a deployment needs a budget                    | done         |
-| Remove the unauthenticated `trade` surface | it is an open write path                       | **open**     |
+| Remove the unauthenticated `trade` surface | it was an open write path                      | done         |
 | Fuji deployment                            | the last step, not the first                   | **not done** |
 
-Parallelism: the PostgreSQL track, the security track (trade + rate limiting) and the gas
+Parallelism: the PostgreSQL track, the security track (rate limiting) and the gas
 measurement track touch disjoint files and can run simultaneously. The reconciliation worker
 and the indexer lease both touch `src/blockchain` and should be sequenced or done by one
 person.
@@ -46,7 +46,7 @@ person.
 
 Not scoped yet, and deliberately not started. The likely shape:
 
-- **Web UI**: upload → verification result → anchor → reserve. Today `apps/web` is a shell.
+- **Web UI**: upload → verification result → anchor → reserve. Demo UI landed 2026-11-08 (see current-status §3.4).
 - **Risk assessment**: `RiskAssessment` is modelled and unwritten; there is no scoring.
 - **Approval workflow**: a financing request is created and reserved, but nothing approves
   or rejects it on business grounds.
