@@ -79,13 +79,12 @@ apps/api/
   src/auth/                  JWT, guards, roles
   src/invoices/              intake, XML parser, fingerprint, storage
   src/invoice-verification/  check engine, checks/, presenter
-  src/financing-requests/    request read seam + lifecycle routes
+  src/financing-requests/    request list/get/create + lifecycle routes
   src/blockchain/            commitment, outbox, receipts, indexer, reconciler, quota
   src/blockchain-registry/   Phase 2 read seam over confirmed anchors
-  src/trade/                 Phase 1 legacy, unauthenticated, kept for regression
   prisma/schema.prisma       18 models
   prisma/migrations/         4 migrations, committed SQL
-  test/                      16 Vitest files
+  test/                      19 Vitest files
 apps/web/src/app/            layout, page, api/health route
 packages/contracts/
   contracts/VeriTradeInvoiceRegistry.sol   the registry (Phase 4)
@@ -156,8 +155,9 @@ Full command reference and the Docker/no-Docker split:
 
 - `apps/web` is a **shell**: a landing page and a health route. There is no invoice or
   financing UI. Do not describe the product as having a working frontend.
-- `apps/api/src/trade/*` is **unauthenticated** and predates auth. It exists for the
-  regression suite. Do not expose it, and do not "fix" it by adding auth without a task.
+- The Phase 1 `trade` HTTP module was **deleted** (SEC-0, 2026-11-08). The Prisma `Trade`
+  model, its migration and one seed row remain; there is no API for them. Do not re-add an
+  unauthenticated route.
 - `PASSED` verification is **unreachable by design** (the tax-authority check reports
   `UNSUPPORTED`). Anchoring accepts `PASSED` or `PARTIAL`. Do not make unimplemented checks
   pass.
@@ -218,6 +218,7 @@ A task is done when **all** of these are true:
 | [`docs/architecture.md`](docs/architecture.md)                             | Touching module boundaries or the request path |
 | [`docs/decisions.md`](docs/decisions.md)                                   | You are about to change a past decision        |
 | [`docs/roadmap.md`](docs/roadmap.md)                                       | Choosing what to work on next                  |
+| [`docs/master-plan.md`](docs/master-plan.md)                               | Planning work against the UniHack deadline     |
 | [`docs/phase-4.5-backlog.md`](docs/phase-4.5-backlog.md)                   | Picking up Phase 4.5 work                      |
 | [`docs/database-design.md`](docs/database-design.md)                       | Changing the schema                            |
 | [`docs/invoice-processing.md`](docs/invoice-processing.md)                 | Parsing, normalising or storing documents      |

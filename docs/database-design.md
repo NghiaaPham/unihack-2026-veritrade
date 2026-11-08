@@ -252,9 +252,11 @@ UPDATE … SET lease_owner = $worker, lease_expires_at = now() + interval '120 s
 rows are picked up without an operator. There is deliberately no separate lock table: the
 row being worked on is the lock, which means a lease cannot outlive the row it protects.
 
-### `trade` (Phase 1, preserved)
+### `trade` (Phase 1, preserved, no API)
 
-The settlement record from Phase 1: parties, asset, exact `numeric(38,18)` amount, status
+The HTTP module that served this table was deleted on 2026-11-08 (SEC-0); the table, its
+migration and one seed row remain because dropping a table is a separate, irreversible
+decision. The settlement record from Phase 1: parties, asset, exact `numeric(38,18)` amount, status
 enum, settlement transaction. `reference` is the caller-supplied idempotency key and is
 unique. Settlement columns stay null until the on-chain transaction confirms.
 
