@@ -150,6 +150,22 @@ These guards are a convenience and a clearer error. They are **not** the securit
 the contract enforces the same rules, and a direct call that bypasses the API still cannot
 skip a state.
 
+### Creating a request
+
+`POST /api/v1/financing-requests` is the only entry into `REQUESTED`. It sends no
+transaction and is not metered by the chain quota. It refuses, in this order: an invoice
+outside the caller's organization (`404 INVOICE_NOT_FOUND`), a `requestedAmount` above the
+invoice amount (`400 REQUESTED_AMOUNT_EXCEEDS_INVOICE`, compared as decimals), a latest
+verification that is not `PASSED`/`PARTIAL` (`409 INVOICE_NOT_VERIFIED`, the same check
+anchoring uses), and a second live request for the invoice (`409 FINANCING_REQUEST_ACTIVE`,
+from the `activeKey` unique index, so concurrent calls cannot both succeed). The row is
+written with `activeKey = 'ACTIVE'`, the invoice's currency, and an audit entry
+`financing_request.created`.
+
+The invoice's own status is **not** moved to `FINANCING_REQUESTED`: nothing in this workflow
+moves it back when a request is rejected or cancelled, so the request row is the source of
+truth for "is this invoice in financing".
+
 ## 9. Invariants
 
 Asserted by the contract test suite, including a 240-step randomised sequence:
