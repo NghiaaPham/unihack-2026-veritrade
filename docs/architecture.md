@@ -37,7 +37,6 @@ apps/api/src
 ├── config/env.validation.ts               fail-fast environment validation
 ├── database/                              PrismaService, PrismaModule, error mapping
 ├── health/                                liveness + readiness
-├── trade/                                 Phase 1 settlement record (kept)
 └── <domain>/                              one directory per domain module
 ```
 
@@ -104,9 +103,6 @@ request.
 - **`database`** — `PrismaService` (global) owns the `pg` pool and the Prisma client.
   There is exactly one per process.
 - **`health`** — liveness and readiness, described below.
-- **`trade`** — the Phase 1 settlement record. Kept deliberately: it is the only
-  behaviourally-tested slice that predates the domain model, and keeping it green while
-  the ORM changed was the check that the migration was honest.
 
 ## Request lifecycle
 
