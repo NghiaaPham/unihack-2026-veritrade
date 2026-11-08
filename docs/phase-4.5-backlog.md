@@ -15,7 +15,7 @@ deliberately not attempted:
 | BC-2   | Multi-instance safety                  | **Done** — nonce allocator + operation and cursor leases         |
 | BC-3   | Gas measurements                       | **Done** — see [current-status.md](current-status.md) §4.3       |
 | SEC-1  | Chain write rate limiting              | **Done** — quota guard, 6 HTTP tests                             |
-| SEC-0  | Remove the unauthenticated `trade` API | **Not done** — needs a product decision (delete or authenticate) |
+| SEC-0  | Remove the unauthenticated `trade` API | **Done, 2026-11-08** — option 1 (delete)                          |
 | FUJI-1 | Fuji deployment readiness              | **Ready, not deployed** — no key, no transaction, no address     |
 
 The task bodies below are kept as written, so the acceptance criteria still describe what
@@ -61,9 +61,10 @@ SEC-1  Blockchain rate limiting      (independent)
 
 ## SEC-0 — Remove the unauthenticated `trade` surface
 
-> **Status: not done.** Still the highest-severity item in the repository. It needs a
-> decision — delete the module, or authenticate it — which is a product call, not an
-> engineering one.
+> **Status: done, 2026-11-08.** Option 1 (delete) was chosen by the product owner. The
+> `trade` module, controller, service, DTOs and `trade.e2e-spec.ts` (33 tests) are removed.
+> The Prisma `Trade` model, its migration and the seed row remain. Result: 215 API tests on
+> both PGlite and PostgreSQL 17.11, down from 248.
 
 **Priority:** highest severity in the repository · **Effort:** S
 

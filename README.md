@@ -199,28 +199,6 @@ Two things worth knowing before you query:
   `@@unique([invoiceId, activeKey])` permits exactly one live request per invoice while
   allowing any number of rejected or cancelled ones.
 
-## Trade API
-
-| Method | Path                                 | Behaviour                                          |
-| ------ | ------------------------------------ | -------------------------------------------------- |
-| `POST` | `/api/trades`                        | `201` with the row; `409` on duplicate `reference` |
-| `GET`  | `/api/trades?status=&limit=&offset=` | `{ data, total }`; `limit` 1–100, default 20       |
-| `GET`  | `/api/trades/:id`                    | `200`, or `404` when missing                       |
-
-Validation runs through a global `ValidationPipe` with `whitelist` and
-`forbidNonWhitelisted`, so an unknown field is a `400` rather than being silently
-dropped. Input rules: `reference` ≤ 64 chars, both addresses `0x` + 40 hex, `amount` a
-positive decimal string with ≤ 18 fraction digits, `chainId` optional (defaults to
-43113). Addresses are lowercased before insert so the checksummed and unchecksummed
-forms cannot become separate rows. `amount` is returned as a string — it is never
-parsed into a float.
-
-`status` is not settable on create; it defaults to `draft`. Settlement transitions are
-not implemented yet.
-
-> The trade endpoints predate the auth layer and are **unauthenticated**. They are kept
-> so the Phase 1 regression suite keeps running. Use the invoice API below.
-
 ## Invoice API
 
 Nine endpoints under `/api/v1/invoices`: the seven below, plus `POST /:id/anchor` and
@@ -331,7 +309,6 @@ every table. Start the server first with `pnpm db:up`.
 | `verification-checks.spec.ts`   | Each check's pass, fail, skip and unsupported paths                                                     |
 | `verification-engine.spec.ts`   | Aggregation rules, a throwing check, no driver text in the stored result                                |
 | `invoice-fingerprint.spec.ts`   | Determinism, identity sensitivity, incomplete identity, content versus identity                         |
-| `trade.e2e-spec.ts`             | The Phase 1 trade API, unchanged, now running on Prisma                                                 |
 | `schema.spec.ts`                | Tenant-scoped duplicate detection, single-active-financing, FK rules, 38-digit decimal round trip       |
 | `health.e2e-spec.ts`            | Liveness, readiness, `503` on an unreachable database, no error leak                                    |
 | `domain-modules.spec.ts`        | All eight domain services resolve from the root container                                               |
