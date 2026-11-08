@@ -3,7 +3,6 @@ import { ConfigModule } from '@nestjs/config';
 import { validateEnvironment } from './config/env.validation.js';
 import { PrismaModule } from './database/prisma.module.js';
 import { HealthModule } from './health/health.module.js';
-import { TradeModule } from './trade/trade.module.js';
 import { AuditLogsModule } from './audit-logs/audit-logs.module.js';
 import { BlockchainModule } from './blockchain/blockchain.module.js';
 import { BlockchainRegistryModule } from './blockchain-registry/blockchain-registry.module.js';
@@ -34,7 +33,6 @@ import { RiskAssessmentModule } from './risk-assessment/risk-assessment.module.j
     }),
     PrismaModule,
     HealthModule,
-    TradeModule,
     // Domain modules
     IdentityAccessModule,
     OrganizationsModule,

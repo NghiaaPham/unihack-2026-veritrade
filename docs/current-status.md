@@ -39,7 +39,7 @@ If you read nothing else:
 | 2       | Prisma data model, 8 domain module skeletons   | **Complete**        | 4 migrations, schema validates, 4 wiring tests                |
 | 3       | Auth, tenancy, XML intake, verification engine | **Complete**        | 38 invoice e2e, 25 check tests                                |
 | 4       | Avalanche registry, outbox, claim lifecycle    | **Complete (code)** | 33 contract tests, 14 blockchain e2e                          |
-| **4.5** | Production hardening (DB, worker, limits)      | **Complete (code)** | 229 API tests on real PostgreSQL, 7 recovery tests, gas table |
+| **4.5** | Production hardening (DB, worker, limits)      | **Complete (code)** | 248 API tests on real PostgreSQL, 7 recovery tests, gas table |
 | 5       | Product surface (UI, risk scoring, approvals)  | **Not started**     | —                                                             |
 
 "Complete (code)" is deliberate for Phases 4 and 4.5: the implementation and its tests are
@@ -124,19 +124,19 @@ current tree.
 Per-package:
 
 ```bash
-pnpm --filter @veritrade/api test            # Vitest on PGlite, 16 files
-pnpm --filter @veritrade/api test:postgres   # Vitest on a real server, 16 files
+pnpm --filter @veritrade/api test            # Vitest on PGlite, 19 files
+pnpm --filter @veritrade/api test:postgres   # Vitest on a real server, 19 files
 pnpm --filter @veritrade/contracts test      # Hardhat node:test, 1 file
 ```
 
 ### 4.1 Test evidence
 
-**API suite, 229 tests across 16 files, run twice on 2026-11-06:**
+**API suite, 248 tests across 19 files, run twice on 2026-11-08:**
 
 | Engine                       | Command         | Result          | Duration |
 | ---------------------------- | --------------- | --------------- | -------- |
-| PGlite (in-process WASM)     | `pnpm test`     | **229 passing** | 5.3 s    |
-| PostgreSQL 17.11 (networked) | `test:postgres` | **229 passing** | 9.2 s    |
+| PGlite (in-process WASM)     | `pnpm test`     | **248 passing** | 29.0 s   |
+| PostgreSQL 17.11 (networked) | `test:postgres` | **248 passing** | 38.7 s   |
 
 The second row is the one that matters. The first is what CI runs, because it needs no
 container.
@@ -279,16 +279,16 @@ These are the parts that are still single-instance by design or by omission:
 
 ### 7.2 Other debt
 
-| Debt                                                            | Why it exists                                                      | Cost of leaving it                                                                                                                                                                                     |
-| --------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `apps/web` is a shell                                           | No frontend work has been scheduled                                | the product cannot be demoed without curl                                                                                                                                                              |
-| Two docs sets: `architecture.md` + `blockchain-architecture.md` | Phase 4 added a layer                                              | a reader must read both to see the whole picture                                                                                                                                                       |
-| `trade` module kept                                             | proved the Drizzle→Prisma swap was honest                          | unauthenticated surface, extra tests, reader confusion                                                                                                                                                 |
-| `blockchain-registry` and `blockchain` both exist               | the Phase 2 seam is still asserted by a test                       | two similar names for different jobs                                                                                                                                                                   |
-| Verification status `PASSED` unreachable                        | the tax-authority check has no integration                         | anchoring depends on `PARTIAL`, which reads oddly                                                                                                                                                      |
-| Seed data is synthetic only                                     | no real documents available                                        | demos show invented invoices                                                                                                                                                                           |
-| Seed used to write a fake `chainId: 43113` `blockchain_records` row | **Resolved.** `prisma/seed.ts` no longer writes any `BlockchainRecord`; the fabricated Fuji row was removed in `3bf26ae` and the development database was cleaned (`docs/dev-db-cleanup-plan.md`). A re-seed writes zero confirmations. | the hazard was a seed bug; it is gone, but the runbook still lists the seed row as a pre-Fuji gate for anyone re-cloning |
-| Docs are lowercase kebab-case                                   | matches 13 pre-existing files                                      | the phase brief asked for uppercase names; see [ADR-014](decisions.md#adr-014--documentation-filenames-stay-lowercase-kebab-case)                                                                      |
+| Debt                                                                | Why it exists                                                                                                                                                                                                                           | Cost of leaving it                                                                                                                |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web` is a shell                                               | No frontend work has been scheduled                                                                                                                                                                                                     | the product cannot be demoed without curl                                                                                         |
+| Two docs sets: `architecture.md` + `blockchain-architecture.md`     | Phase 4 added a layer                                                                                                                                                                                                                   | a reader must read both to see the whole picture                                                                                  |
+| `trade` module kept                                                 | proved the Drizzle→Prisma swap was honest                                                                                                                                                                                               | unauthenticated surface, extra tests, reader confusion                                                                            |
+| `blockchain-registry` and `blockchain` both exist                   | the Phase 2 seam is still asserted by a test                                                                                                                                                                                            | two similar names for different jobs                                                                                              |
+| Verification status `PASSED` unreachable                            | the tax-authority check has no integration                                                                                                                                                                                              | anchoring depends on `PARTIAL`, which reads oddly                                                                                 |
+| Seed data is synthetic only                                         | no real documents available                                                                                                                                                                                                             | demos show invented invoices                                                                                                      |
+| Seed used to write a fake `chainId: 43113` `blockchain_records` row | **Resolved.** `prisma/seed.ts` no longer writes any `BlockchainRecord`; the fabricated Fuji row was removed in `3bf26ae` and the development database was cleaned (`docs/dev-db-cleanup-plan.md`). A re-seed writes zero confirmations. | the hazard was a seed bug; it is gone, but the runbook still lists the seed row as a pre-Fuji gate for anyone re-cloning          |
+| Docs are lowercase kebab-case                                       | matches 13 pre-existing files                                                                                                                                                                                                           | the phase brief asked for uppercase names; see [ADR-014](decisions.md#adr-014--documentation-filenames-stay-lowercase-kebab-case) |
 
 ## 8. Fuji deployment status
 
