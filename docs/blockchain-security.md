@@ -177,9 +177,8 @@ Two design choices are deliberate:
   for a nonexistent invoice consumes a unit. Otherwise a caller could probe with garbage ids
   for free and only pay on the attempts that succeed.
 
-What this does **not** cover: invoice uploads, login attempts (no lockout) and the legacy
-`trade` routes are still unmetered. Only the chain surface is bounded, because only the chain
-surface spends AVAX.
+What this does **not** cover: invoice uploads and login attempts (no lockout) are still
+unmetered. Only the chain surface is bounded, because only the chain surface spends AVAX.
 
 ## 10. Out of scope
 
