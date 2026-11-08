@@ -21,10 +21,6 @@ and then submit a contract call the server chose. No endpoint accepts a key, a
 destination or raw calldata, so a compromised token can move a claim but cannot make the
 server sign for something else.
 
-**The Phase 1 trade endpoints are not protected.** They predate the auth layer
-and still accept anonymous writes. They are kept for the regression suite and
-are not part of the Phase 3 surface; do not expose them.
-
 | Control                        | State                                                                           |
 | ------------------------------ | ------------------------------------------------------------------------------- |
 | Input validation               | Implemented — global `ValidationPipe`, whitelist + reject unknown               |
@@ -202,33 +198,28 @@ periodic anchoring of the log root on-chain. None of that is implemented.
 
 ## Known gaps, ranked
 
-1. **Phase 1 trade endpoints are unauthenticated.** They predate the auth layer
-   and still accept anonymous writes. They exist for the regression suite; a
-   deployment must route around them or remove them.
-2. **No rate limiting.** An authenticated client can submit invoices as fast as
+1. **No rate limiting.** An authenticated client can submit invoices as fast as
    the database allows — and now also as fast as the chain allows, which costs testnet
    AVAX per call. This is the highest-value missing control after Phase 4.
-3. **No tenant enforcement on the trade endpoints** — the invoice module is
-   scoped, the legacy trade module is not.
-4. **The commitment is confirmable.** Cross-tenant duplicate _detection_ now works, but
+2. **The commitment is confirmable.** Cross-tenant duplicate _detection_ now works, but
    an observer who already holds a candidate invoice can test whether it is registered.
    This is inherent to a public global registry and is documented rather than fixed —
    see [invoice-commitment-spec.md](./invoice-commitment-spec.md).
-5. **No key management** for the deployer key. It is a plain environment variable, held
+3. **No key management** for the deployer key. It is a plain environment variable, held
    by one process, with no HSM, no rotation and no separation between the deployer and
    the runtime signer. Production needs a KMS or a signing service.
-6. **The registry admin can pause everything and close any financed claim.** Both are
+4. **The registry admin can pause everything and close any financed claim.** Both are
    deliberate recovery paths; both are also a centralisation point. See
    [blockchain-security.md](./blockchain-security.md).
-7. **No automated reconciler.** An `UNKNOWN` operation is resolved when a client polls
+5. **No automated reconciler.** An `UNKNOWN` operation is resolved when a client polls
    it. If the client never comes back, the row stays `UNKNOWN` until someone looks. The
    hash is preserved, so nothing is lost — it is just not automatic.
-8. **The indexer assumes one instance.** No lease on the cursor row, so two pollers
+6. **The indexer assumes one instance.** No lease on the cursor row, so two pollers
    would race. A reorg deeper than one block per pass takes several passes to rewind.
-9. **Audit log is not tamper-evident.**
-10. **No PII retention policy.** Nothing expires, anonymises or deletes user data. This
+7. **Audit log is not tamper-evident.**
+8. **No PII retention policy.** Nothing expires, anonymises or deletes user data. This
     matters more now: the on-chain commitment is permanent, so "delete the invoice"
     cannot mean "delete the trace that it was financed".
-11. **No document integrity check on read.** `content_sha256` is stored but not
+9. **No document integrity check on read.** `content_sha256` is stored but not
     re-verified when the blob is read back, so a modified file would be verified
     as if it were the original.
