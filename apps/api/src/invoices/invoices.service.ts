@@ -30,9 +30,11 @@ import {
 } from './invoice-normalization.js';
 import {
   toInvoiceResponse,
+  toInvoiceSummary,
   type InvoiceDetailResponse,
   type InvoiceHistoryResponse,
   type InvoiceListResponse,
+  type InvoiceSummary,
 } from './invoice.presenter.js';
 import { DOCUMENT_STORAGE, type DocumentStorage } from './storage/document-storage.js';
 import { InvoiceXmlParserService } from './xml/invoice-xml-parser.service.js';
@@ -270,6 +272,37 @@ export class InvoicesService {
       items: invoices.map((invoice) => toInvoiceResponse(invoice, invoice.document)),
       pagination: { total, limit, offset },
     };
+  }
+
+  /**
+   * Tenant-scoped summary for other modules. `null` rather than a throw: the
+   * caller owns the error it wants to raise (a financing request reports
+   * `INVOICE_NOT_FOUND`, not an invoice-module exception).
+   */
+  async findSummary(organizationId: string, id: string): Promise<InvoiceSummary | null> {
+    if (!UUID.test(id)) {
+      return null;
+    }
+
+    const invoice = await this.prisma.invoice.findFirst({ where: { id, organizationId } });
+
+    return invoice === null ? null : toInvoiceSummary(invoice);
+  }
+
+  /** Batch form of `findSummary`: a list screen costs one query, not one per row. */
+  async summariesByIds(
+    organizationId: string,
+    ids: readonly string[],
+  ): Promise<Map<string, InvoiceSummary>> {
+    if (ids.length === 0) {
+      return new Map();
+    }
+
+    const invoices = await this.prisma.invoice.findMany({
+      where: { organizationId, id: { in: [...ids] } },
+    });
+
+    return new Map(invoices.map((invoice) => [invoice.id, toInvoiceSummary(invoice)]));
   }
 
   /** Latest verdict only — the common case for a detail screen. */
