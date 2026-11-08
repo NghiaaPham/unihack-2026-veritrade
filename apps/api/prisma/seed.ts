@@ -411,8 +411,8 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
       sellerAddress: '0x2222222222222222222222222222222222222222',
       asset: 'USDC',
       amount: '1000.000000000000000000',
-      // Local development chain only — never Fuji (43113). The trade module is
-      // legacy, unauthenticated demo data; it must not imply a real testnet.
+      // Local development chain only — never Fuji (43113). The Trade model is
+      // legacy demo data with no API; it must not imply a real testnet.
       chainId: 31337,
     },
   });
