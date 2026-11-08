@@ -40,7 +40,8 @@ const ERROR_RESPONSES = {
  * tenant's financing request by guessing a UUID.
  *
  * Every route here can create a transaction, so every route is metered by
- * `BlockchainQuotaGuard`. There is no read route on this controller to exempt.
+ * `BlockchainQuotaGuard`. The read and create routes live in
+ * `FinancingRequestsResourceController` so they are not metered.
  */
 @ApiTags('financing-requests')
 @ApiBearerAuth()
