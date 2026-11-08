@@ -184,7 +184,7 @@ via `config/env.validation.ts`.
 
 Sixteen tables: eleven across the domain modules, the three Phase 4 chain
 records (`blockchain_operations`, `blockchain_transaction_receipts`,
-`blockchain_events`), and the two Phase 1 records (`chain_sync_cursor`, `trade`). The
+`blockchain_events`), and the two Phase 1 records (`chain_sync_cursor`, `trade`, which no endpoint serves any more). The
 models, their relations, the indexes that back them, the state machines, and the
 duplicate-financing threat model are documented in
 [docs/database-design.md](docs/database-design.md). The outbox and why it exists are in
@@ -198,28 +198,6 @@ Two things worth knowing before you query:
   is terminal. Postgres treats `NULL`s as distinct in a unique index, so
   `@@unique([invoiceId, activeKey])` permits exactly one live request per invoice while
   allowing any number of rejected or cancelled ones.
-
-## Trade API
-
-| Method | Path                                 | Behaviour                                          |
-| ------ | ------------------------------------ | -------------------------------------------------- |
-| `POST` | `/api/trades`                        | `201` with the row; `409` on duplicate `reference` |
-| `GET`  | `/api/trades?status=&limit=&offset=` | `{ data, total }`; `limit` 1–100, default 20       |
-| `GET`  | `/api/trades/:id`                    | `200`, or `404` when missing                       |
-
-Validation runs through a global `ValidationPipe` with `whitelist` and
-`forbidNonWhitelisted`, so an unknown field is a `400` rather than being silently
-dropped. Input rules: `reference` ≤ 64 chars, both addresses `0x` + 40 hex, `amount` a
-positive decimal string with ≤ 18 fraction digits, `chainId` optional (defaults to
-43113). Addresses are lowercased before insert so the checksummed and unchecksummed
-forms cannot become separate rows. `amount` is returned as a string — it is never
-parsed into a float.
-
-`status` is not settable on create; it defaults to `draft`. Settlement transitions are
-not implemented yet.
-
-> The trade endpoints predate the auth layer and are **unauthenticated**. They are kept
-> so the Phase 1 regression suite keeps running. Use the invoice API below.
 
 ## Invoice API
 
@@ -256,6 +234,22 @@ Processing rules, supported XML formats and the normalisation table are in
 [docs/invoice-processing.md](docs/invoice-processing.md). The parsing threat model and
 the storage requirements for production are in
 [docs/invoice-security.md](docs/invoice-security.md).
+
+## Financing request API
+
+Read and create routes. Same bearer token and tenant scoping; none of them sends a chain
+transaction, so none is metered by the chain write quota.
+
+| Method | Path                             | Behaviour                                                                                                      |
+| ------ | -------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/v1/financing-requests`     | Caller organization only, newest first; `status`, `invoiceId`, `limit` (1–100), `offset`                       |
+| `GET`  | `/api/v1/financing-requests/:id` | One request with an invoice summary; `404` for another organization's id                                       |
+| `POST` | `/api/v1/financing-requests`     | `201` `REQUESTED`; OWNER/ADMIN/MEMBER; `404` foreign invoice, `409` unverified or already active, `400` amount |
+
+`requestedAmount` is a decimal string and may not exceed the invoice amount (compared as
+decimals, `400 REQUESTED_AMOUNT_EXCEEDS_INVOICE`). The latest verification must be `PASSED`
+or `PARTIAL` (`409 INVOICE_NOT_VERIFIED`) and an invoice can have one active request
+(`409 FINANCING_REQUEST_ACTIVE`). Creating a request does not change the invoice status.
 
 ## Blockchain API
 
@@ -322,26 +316,26 @@ pnpm --filter @veritrade/api test:watch
 migrations, and refuses to run unless the database name contains `test` — it truncates
 every table. Start the server first with `pnpm db:up`.
 
-229 tests across sixteen files:
+241 tests across nineteen files:
 
-| File                            | Covers                                                                                                  |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `invoice-api.e2e-spec.ts`       | The seven endpoints: intake, upload, duplicates, tenant isolation, pagination, history, storage failure |
-| `invoice-xml-parser.spec.ts`    | Profiles, XXE/DTD rejection, UTF-8 strictness, depth and node limits, unsupported formats               |
-| `verification-checks.spec.ts`   | Each check's pass, fail, skip and unsupported paths                                                     |
-| `verification-engine.spec.ts`   | Aggregation rules, a throwing check, no driver text in the stored result                                |
-| `invoice-fingerprint.spec.ts`   | Determinism, identity sensitivity, incomplete identity, content versus identity                         |
-| `trade.e2e-spec.ts`             | The Phase 1 trade API, unchanged, now running on Prisma                                                 |
-| `schema.spec.ts`                | Tenant-scoped duplicate detection, single-active-financing, FK rules, 38-digit decimal round trip       |
-| `health.e2e-spec.ts`            | Liveness, readiness, `503` on an unreachable database, no error leak                                    |
-| `domain-modules.spec.ts`        | All eight domain services resolve from the root container                                               |
-| `pg-interop.spec.ts`            | The built output links under Node's ESM loader; `pg` still exports `Pool`                               |
-| `seed-compat.spec.ts`           | The modules the seed imports load under Node's type stripping, and hash identically to the service      |
-| `blockchain-commitment.spec.ts` | The golden commitment vector, domain separation, ABI drift against the compiled artifact, RPC guards    |
-| `blockchain.e2e-spec.ts`        | Anchor, idempotency, cross-org collision, full lifecycle, cancellation, indexer replay and a real reorg |
-| `blockchain-hardening.spec.ts`  | Backoff bounds, lease claim and takeover, concurrent claims, quota atomicity, per-tenant windows        |
-| `blockchain-recovery.spec.ts`   | Stuck transactions against a real EVM: settle by hash, adopt by nonce, re-broadcast, never re-sign      |
-| `blockchain-quota.e2e-spec.ts`  | `429` with `Retry-After`, polling not charged, auth before metering, pending cap                        |
+| File                             | Covers                                                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `invoice-api.e2e-spec.ts`        | The seven endpoints: intake, upload, duplicates, tenant isolation, pagination, history, storage failure |
+| `financing-requests.e2e-spec.ts` | List, get and create: 400/403/404/409 rules, tenant isolation, no chain quota                           |
+| `invoice-xml-parser.spec.ts`     | Profiles, XXE/DTD rejection, UTF-8 strictness, depth and node limits, unsupported formats               |
+| `verification-checks.spec.ts`    | Each check's pass, fail, skip and unsupported paths                                                     |
+| `verification-engine.spec.ts`    | Aggregation rules, a throwing check, no driver text in the stored result                                |
+| `invoice-fingerprint.spec.ts`    | Determinism, identity sensitivity, incomplete identity, content versus identity                         |
+| `schema.spec.ts`                 | Tenant-scoped duplicate detection, single-active-financing, FK rules, 38-digit decimal round trip       |
+| `health.e2e-spec.ts`             | Liveness, readiness, `503` on an unreachable database, no error leak                                    |
+| `domain-modules.spec.ts`         | All eight domain services resolve from the root container                                               |
+| `pg-interop.spec.ts`             | The built output links under Node's ESM loader; `pg` still exports `Pool`                               |
+| `seed-compat.spec.ts`            | The modules the seed imports load under Node's type stripping, and hash identically to the service      |
+| `blockchain-commitment.spec.ts`  | The golden commitment vector, domain separation, ABI drift against the compiled artifact, RPC guards    |
+| `blockchain.e2e-spec.ts`         | Anchor, idempotency, cross-org collision, full lifecycle, cancellation, indexer replay and a real reorg |
+| `blockchain-hardening.spec.ts`   | Backoff bounds, lease claim and takeover, concurrent claims, quota atomicity, per-tenant windows        |
+| `blockchain-recovery.spec.ts`    | Stuck transactions against a real EVM: settle by hash, adopt by nonce, re-broadcast, never re-sign      |
+| `blockchain-quota.e2e-spec.ts`   | `429` with `Retry-After`, polling not charged, auth before metering, pending cap                        |
 
 `blockchain.e2e-spec.ts` and `blockchain-recovery.spec.ts` start a second process: they run
 `hardhat node` on ports 8546 and 8547, deploy the compiled contract, grant the roles, and
@@ -410,8 +404,8 @@ Hand-written code must not use `.ts` specifiers.
 ## Deliberately not included yet
 
 Phase 4.5 hardened the chain surface. The HTTP surface is unchanged: the health
-endpoints, the legacy trade endpoints, `POST /api/v1/auth/*`, the nine invoice
-endpoints, the four financing-request routes, and
+endpoints, `POST /api/v1/auth/*`, the nine invoice
+endpoints, the seven financing-request routes, and
 `GET /api/v1/blockchain/transactions/:id`.
 
 Deferred, and honestly so:
@@ -422,8 +416,8 @@ Deferred, and honestly so:
   RPC boundary is proven; the deployment itself is not.
 - **One signer, serialised.** Nonce allocation is database-backed, so two instances cannot
   collide, but they still share one account. Chain writes queue rather than scale.
-- **Rate limiting covers chain writes only.** Invoice intake, login (no lockout) and the
-  legacy trade routes are unmetered. See
+- **Rate limiting covers chain writes only.** Invoice intake and login (no lockout) are
+  unmetered. See
   [docs/blockchain-security.md](docs/blockchain-security.md) §9.1.
 - **Tax-authority verification.** No authorised integration exists, so the check reports
   `UNSUPPORTED` on every run rather than pretending. `PASSED` is therefore unreachable
