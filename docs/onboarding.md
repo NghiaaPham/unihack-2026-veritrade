@@ -182,7 +182,7 @@ pnpm dev                              # both, via Turbo
 | API           | http://localhost:3001                  | http://localhost:3001/api/v1/health |
 | API readiness | http://localhost:3001/api/v1/health/db | `503` without a database            |
 | Swagger UI    | http://localhost:3001/api/docs         | non-production only                 |
-| OpenAPI JSON  | http://localhost:3001/api/docs-json    | 20 documented paths                 |
+| OpenAPI JSON  | http://localhost:3001/api/docs-json    | 18 documented paths                 |
 
 Individually:
 
@@ -300,7 +300,7 @@ PostgreSQL 17.11 container.
 | API without DB           | `GET /api/v1/health`                            | 200 `{"status":"ok"}`      |
 | API without DB           | `GET /api/v1/health/db`                         | 503, no driver text leaked |
 | Swagger UI               | `GET /api/docs`                                 | 200 `text/html`            |
-| OpenAPI                  | `GET /api/docs-json`                            | 21 paths                   |
+| OpenAPI                  | `GET /api/docs-json`                            | 18 paths                   |
 | Fuji RPC                 | `eth_chainId`                                   | `0xa869` (43113)           |
 | Fuji deploy guard        | `deploy:fuji` without confirmation              | refused                    |
 | Fuji key check           | `env:check`                                     | exit 1, "no deployer key"  |

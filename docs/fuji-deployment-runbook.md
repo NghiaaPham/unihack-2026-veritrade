@@ -165,7 +165,7 @@ Final `apps/api/.env` values (see §4). After setting them, boot and check:
 
 ```bash
 curl http://localhost:3001/api/v1/health/db     # {"connected":true,"latencyMs":...}
-curl http://localhost:3001/api/v1/docs-json     # 20 paths
+curl http://localhost:3001/api/v1/docs-json     # 18 paths
 ```
 
 `BLOCKCHAIN_INDEXER_INTERVAL_MS=0` disables the event indexer; set it to a non-zero value
