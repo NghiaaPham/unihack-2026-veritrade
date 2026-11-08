@@ -7,16 +7,16 @@ acceptance criteria, owner role, and the commands that prove it is done.
 **Status as of 2026-11-06.** Five are complete, one is partly complete, and one was
 deliberately not attempted:
 
-| Task   | Scope                                  | Status                                                           |
-| ------ | -------------------------------------- | ---------------------------------------------------------------- |
-| PG-1   | Validate against real PostgreSQL 17    | **Done** — PostgreSQL 17.11, 229 tests green                     |
-| PG-2   | Migration validation and drift         | **Done** — 4 migrations applied, schema in sync                  |
-| BC-1   | Reconciliation worker                  | **Done** — 7 recovery tests against a real EVM                   |
-| BC-2   | Multi-instance safety                  | **Done** — nonce allocator + operation and cursor leases         |
-| BC-3   | Gas measurements                       | **Done** — see [current-status.md](current-status.md) §4.3       |
-| SEC-1  | Chain write rate limiting              | **Done** — quota guard, 6 HTTP tests                             |
-| SEC-0  | Remove the unauthenticated `trade` API | **Not done** — needs a product decision (delete or authenticate) |
-| FUJI-1 | Fuji deployment readiness              | **Ready, not deployed** — no key, no transaction, no address     |
+| Task   | Scope                                  | Status                                                       |
+| ------ | -------------------------------------- | ------------------------------------------------------------ |
+| PG-1   | Validate against real PostgreSQL 17    | **Done** — PostgreSQL 17.11, 229 tests green                 |
+| PG-2   | Migration validation and drift         | **Done** — 4 migrations applied, schema in sync              |
+| BC-1   | Reconciliation worker                  | **Done** — 7 recovery tests against a real EVM               |
+| BC-2   | Multi-instance safety                  | **Done** — nonce allocator + operation and cursor leases     |
+| BC-3   | Gas measurements                       | **Done** — see [current-status.md](current-status.md) §4.3   |
+| SEC-1  | Chain write rate limiting              | **Done** — quota guard, 6 HTTP tests                         |
+| SEC-0  | Remove the unauthenticated `trade` API | **Done, 2026-11-08** — option 1 (delete)                     |
+| FUJI-1 | Fuji deployment readiness              | **Ready, not deployed** — no key, no transaction, no address |
 
 The task bodies below are kept as written, so the acceptance criteria still describe what
 "done" meant. Where the implementation diverged from the plan, the divergence is noted in
@@ -61,9 +61,10 @@ SEC-1  Blockchain rate limiting      (independent)
 
 ## SEC-0 — Remove the unauthenticated `trade` surface
 
-> **Status: not done.** Still the highest-severity item in the repository. It needs a
-> decision — delete the module, or authenticate it — which is a product call, not an
-> engineering one.
+> **Status: done, 2026-11-08.** Option 1 (delete) was chosen by the product owner. The
+> `trade` module, controller, service, DTOs and `trade.e2e-spec.ts` (33 tests) are removed.
+> The Prisma `Trade` model, its migration and the seed row remain. Result: 215 API tests on
+> both PGlite and PostgreSQL 17.11, down from 248.
 
 **Priority:** highest severity in the repository · **Effort:** S
 
