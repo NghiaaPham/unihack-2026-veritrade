@@ -25,7 +25,7 @@ export function configureApp(app: INestApplication): void {
   app.enableCors({ origin: parseOrigins(process.env.CORS_ORIGIN), credentials: true });
 
   // Reject unknown properties instead of silently dropping them: a typo in a
-  // field name should be a 400, not a trade created with a default value.
+  // field name should be a 400, not a record created with a default value.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

@@ -1,15 +1,31 @@
-:root {
-  --background: #ffffff;
-  --foreground: #111827;
-  --muted: #6b7280;
-  --border: #e5e7eb;
-  --accent: #e84142;
+@import 'tailwindcss';
+
+/*
+ * Design tokens. The palette, radii and type scale follow the reference console
+ * (see docs/ui-reference.md) so screens can be matched against its screenshots;
+ * change the brand colour here, not per component.
+ */
+@theme {
+  --color-bg: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-surface2: #f0f2f5;
+  --color-line: #e6e9f0;
+  --color-line-strong: #b8c1d5;
+  --color-ink: #374151;
+  --color-muted: #6b7280;
+  --color-lo: #9ca3af;
+  --color-primary: rgb(90 91 235);
+  --color-primary-soft: rgb(129 130 239);
+  --color-success: rgb(26 158 101);
+  --color-warning: rgb(225 163 37);
+  --color-error: rgb(196 24 72);
+
+  --font-sans: var(--font-sora), system-ui, sans-serif;
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+:root {
+  --color-border: #e6e9f0;
+  --demo-bar-h: 48px;
 }
 
 html,
@@ -19,35 +35,122 @@ body {
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    Helvetica,
-    Arial,
-    sans-serif;
-  line-height: 1.6;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 
-main {
-  max-width: 44rem;
-  margin: 0 auto;
-  padding: 4rem 1.5rem;
+/* Dark "mesh" backdrop used by the role picker and the auth screens. */
+.login-mesh {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 100vh;
+  color: #fff;
+  background:
+    radial-gradient(ellipse at 78% 22%, rgba(129, 130, 239, 0.16) 0, transparent 50%),
+    radial-gradient(ellipse at 18% 30%, rgba(90, 91, 235, 0.18) 0, transparent 52%),
+    radial-gradient(ellipse at 70% 82%, rgba(11, 127, 171, 0.12) 0, transparent 55%), #050614;
 }
 
-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.875em;
-  background: #f3f4f6;
-  border-radius: 4px;
-  padding: 0.15em 0.4em;
+.login-mesh::before,
+.login-mesh::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
 }
 
-a {
-  color: var(--accent);
+.login-mesh::before {
+  inset: 0;
+  opacity: 0.6;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.10 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+.login-mesh::after {
+  inset: -10%;
+  mix-blend-mode: screen;
+  background: radial-gradient(
+    ellipse 50% 60% at 68% 30%,
+    rgba(190, 205, 255, 0.1) 0,
+    transparent 60%
+  );
+}
+
+.login-mesh > * {
+  position: relative;
+  z-index: 2;
+}
+
+.login-glass {
+  background: rgba(13, 5, 35, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(129, 130, 239, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  border-radius: 18px;
+}
+
+.irid {
+  background-image: linear-gradient(
+    95deg,
+    #5a5beb,
+    #8182ef 28%,
+    #a5b4fc 48%,
+    #c4b5fd 68%,
+    #8182ef 84%,
+    #5a5beb
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  filter: drop-shadow(0 0 14px rgba(129, 130, 239, 0.35));
+}
+
+/* Dark gradient pill used for the secondary hero action. */
+.mesh-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  color: #fff;
+  border: none;
+  background: radial-gradient(130% 200% at 50% 50%, #1a0d4d 0, #0a0226 72%);
+  box-shadow:
+    0 2px 14px rgba(90, 91, 235, 0.5),
+    0 0 22px rgba(211, 25, 78, 0.22),
+    0 0 36px rgba(225, 163, 37, 0.16);
+  transition:
+    box-shadow 0.25s ease,
+    transform 0.25s ease,
+    filter 0.25s ease;
+}
+
+.mesh-button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+}
+
+.mesh-button:hover {
+  filter: brightness(1.12);
+  transform: translateY(-2px) scale(1.03);
+}
+
+.mesh-button:disabled {
+  opacity: 0.5;
+  transform: none;
+  cursor: not-allowed;
 }
