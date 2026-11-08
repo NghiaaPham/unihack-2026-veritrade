@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, Length, Matches } from 'class-validator';
 
-/** Same shape the Trade DTO uses: no separators, at most 18 fraction digits. */
+/** Decimal string: no separators, at most 18 fraction digits. */
 const POSITIVE_AMOUNT = /^(?!0+(\.0+)?$)\d{1,20}(\.\d{1,18})?$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TAX_ID = /^[0-9A-Za-z][0-9A-Za-z-]{5,63}$/;
