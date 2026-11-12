@@ -64,6 +64,25 @@ export interface InvoiceDetailResponse extends InvoiceResponse {
   verification: VerificationResponse | null;
 }
 
+/**
+ * The slice of an invoice other modules may embed. It exists so a module that
+ * only needs to *show* an invoice (financing requests) never reads the
+ * `invoices` table itself, and cannot leak a field it was not meant to see.
+ */
+export interface InvoiceSummary {
+  id: string;
+  invoiceSeries: string;
+  invoiceNumber: string;
+  sellerName: string;
+  sellerTaxId: string;
+  buyerName: string;
+  amount: string;
+  currency: string;
+  issueDate: string;
+  dueDate: string | null;
+  status: Invoice['status'];
+}
+
 export interface InvoiceListResponse {
   items: InvoiceResponse[];
   pagination: { total: number; limit: number; offset: number };
@@ -137,5 +156,23 @@ export function toInvoiceResponse(
     createdAt: invoice.createdAt.toISOString(),
     updatedAt: invoice.updatedAt.toISOString(),
     document: document === null ? null : toDocumentResponse(document),
+  };
+}
+
+export function toInvoiceSummary(invoice: Invoice): InvoiceSummary {
+  return {
+    id: invoice.id,
+    invoiceSeries: invoice.invoiceSeries,
+    invoiceNumber: invoice.invoiceNumber,
+    sellerName: invoice.sellerName,
+    sellerTaxId: invoice.issuerTaxId,
+    buyerName: invoice.buyerName,
+    // `toFixed()` never switches to exponent notation, which `toString()` does
+    // for very small values and which a client would parse as a float.
+    amount: invoice.amount.toFixed(),
+    currency: invoice.currency,
+    issueDate: dateOnly(invoice.issueDate),
+    dueDate: dateOnlyOrNull(invoice.dueDate),
+    status: invoice.status,
   };
 }
